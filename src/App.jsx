@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Swords, Upload, Grid3X3, Eye, EyeOff, Plus, Trash2, ZoomIn, ZoomOut,
-  Maximize, Monitor, Lock, Unlock, Send, Image as ImageIcon, MousePointer2,
+  Maximize, Monitor, Lock, Unlock, Image as ImageIcon, MousePointer2,
   Hand, RotateCcw, Shield, Users, Skull, Save, PanelLeftClose, PanelLeftOpen
 } from 'lucide-react'
 
@@ -49,6 +49,8 @@ const initialScene = {
   grid: true,
   gridSize: 64,
   zoom: 1,
+  panX: 0,
+  panY: 0,
   tokens: [],
   fog: [],
   background: '#171713'
@@ -71,10 +73,13 @@ function Projection() {
   const [showBlack, setShowBlack] = useState(false)
   const [transition, setTransition] = useState('fade')
   const [changing, setChanging] = useState(false)
+  const [pan, setPan] = useState({ x: 0, y: 0 })
+  const panDragRef = useRef(null)
+  const projectionStageRef = useRef(null)
   const channelRef = useChannel()
 
   useEffect(() => {
-    loadScene(PUBLISHED_KEY).then(saved => { if (saved) setScene(saved) }).catch(() => {})
+    loadScene(PUBLISHED_KEY).then(saved => { if (saved) { setScene(saved); setPan({ x: saved.panX || 0, y: saved.panY || 0 }) } }).catch(() => {})
   }, [])
 
   useEffect(() => {
@@ -105,20 +110,31 @@ function Projection() {
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
+  const projectionPointerDown = (event) => {
+    if (event.button !== 0) return
+    panDragRef.current = { x: event.clientX, y: event.clientY, panX: pan.x, panY: pan.y }
+    event.currentTarget.setPointerCapture?.(event.pointerId)
+  }
+  const projectionPointerMove = (event) => {
+    if (!panDragRef.current) return
+    setPan({ x: panDragRef.current.panX + event.clientX - panDragRef.current.x, y: panDragRef.current.panY + event.clientY - panDragRef.current.y })
+  }
+  const projectionPointerUp = () => { panDragRef.current = null }
+
   return (
     <main className={`projection ${changing ? 'projection-changing' : ''}`}>
       {showBlack ? <div className="blackout" /> : (
-        <div className="projection-stage">
-          <div className="scene-content" style={{ transform: `scale(${scene.zoom || 1})` }}>
+        <div ref={projectionStageRef} className="projection-stage" onPointerDown={projectionPointerDown} onPointerMove={projectionPointerMove} onPointerUp={projectionPointerUp} onPointerLeave={projectionPointerUp}>
+          <div className="scene-content" style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${scene.zoom || 1})` }}>
             {scene.mapUrl ? <img className="projection-map" src={scene.mapUrl} alt="Mapa da sessão" /> : (
               <div className="projection-empty"><Swords size={46}/><span>Aguardando mapa do mestre</span></div>
             )}
             {scene.grid && <div className="projection-grid" style={{ backgroundSize: `${scene.gridSize}px ${scene.gridSize}px` }} />}
             <div className="projection-tokens">
               {(scene.tokens || []).map(token => (
-                <div key={token.id} className={`token token-${token.kind}`} style={{ left: `${token.x}%`, top: `${token.y}%`, width: token.size, height: token.size }}>
+                <div key={token.id} className={`token token-${token.kind}`} style={{ left: `${token.x}%`, top: `${token.y}%`, width: token.size, height: token.size, fontSize: Math.max(7, token.size * 0.48) }}>
                   <span>{token.symbol}</span>
-                  {token.label && <small>{token.label}</small>}
+                  {token.label && token.size >= 22 && <small>{token.label}</small>}
                 </div>
               ))}
             </div>
@@ -153,6 +169,7 @@ export default function App() {
   const [draftLoaded, setDraftLoaded] = useState(false)
   const stageRef = useRef(null)
   const dragRef = useRef(null)
+  const panDragRef = useRef(null)
   const channelRef = useChannel()
 
   useEffect(() => {
@@ -181,6 +198,13 @@ export default function App() {
       setStatus('Falha ao salvar o rascunho. Verifique o espaço disponível no navegador.')
     })
   }, [scene, draftLoaded])
+
+  useEffect(() => {
+    if (!draftLoaded || frozen) return
+    saveScene(PUBLISHED_KEY, scene).then(() => {
+      channelRef.current?.postMessage({ type: 'publish', transition })
+    }).catch(() => setStatus('Falha ao atualizar a projeção. Verifique o espaço disponível no navegador.'))
+  }, [scene, frozen, draftLoaded, transition])
 
   const updateScene = useCallback((patch) => {
     setScene(current => ({ ...current, ...patch }))
@@ -222,19 +246,6 @@ export default function App() {
     event.target.value = ''
   }
 
-  const publish = async () => {
-    if (frozen) {
-      setStatus('Descongele a projeção antes de publicar uma nova cena.')
-      return
-    }
-    try {
-      await saveScene(PUBLISHED_KEY, scene)
-      channelRef.current?.postMessage({ type: 'publish', transition })
-      setStatus('Cena publicada na projeção')
-    } catch {
-      setStatus('Não foi possível salvar a cena no navegador. Tente uma imagem menor ou libere espaço.')
-    }
-  }
 
   const setFreeze = (value) => {
     setFrozen(value)
@@ -253,34 +264,46 @@ export default function App() {
     if (!win) setStatus('O navegador bloqueou a janela. Permita pop-ups para este site.')
   }
 
-  const changeZoom = (amount) => updateScene({ zoom: Math.max(0.4, Math.min(2.5, +(scene.zoom + amount).toFixed(2))) })
+  const changeZoom = (amount) => updateScene({ zoom: Math.max(0.1, Math.min(5, +((scene.zoom || 1) + amount).toFixed(2))) })
 
   const stagePointerDown = (event, token) => {
-    if (tool !== 'select' || !token) return
-    event.preventDefault()
-    event.stopPropagation()
-    setSelected(token.id)
-    dragRef.current = { id: token.id }
-    event.currentTarget.setPointerCapture?.(event.pointerId)
+    if (token && tool === 'select') {
+      event.preventDefault(); event.stopPropagation()
+      setSelected(token.id)
+      dragRef.current = { id: token.id }
+      event.currentTarget.setPointerCapture?.(event.pointerId)
+      return
+    }
+    if (tool === 'pan' || (tool === 'select' && !token)) {
+      event.preventDefault()
+      panDragRef.current = { x: event.clientX, y: event.clientY, panX: scene.panX || 0, panY: scene.panY || 0 }
+      event.currentTarget.setPointerCapture?.(event.pointerId)
+    }
   }
 
   const stagePointerMove = (event) => {
+    if (panDragRef.current) {
+      updateScene({ panX: panDragRef.current.panX + event.clientX - panDragRef.current.x, panY: panDragRef.current.panY + event.clientY - panDragRef.current.y })
+      return
+    }
     if (!dragRef.current || !stageRef.current) return
     const rect = stageRef.current.getBoundingClientRect()
     const zoom = scene.zoom || 1
-    const x = Math.max(0, Math.min(100, ((event.clientX - rect.left - rect.width * (1 - zoom) / 2) / (rect.width * zoom)) * 100))
-    const y = Math.max(0, Math.min(100, ((event.clientY - rect.top - rect.height * (1 - zoom) / 2) / (rect.height * zoom)) * 100))
+    const px = scene.panX || 0, py = scene.panY || 0
+    const x = Math.max(0, Math.min(100, ((event.clientX - rect.left - rect.width * (1 - zoom) / 2 - px) / (rect.width * zoom)) * 100))
+    const y = Math.max(0, Math.min(100, ((event.clientY - rect.top - rect.height * (1 - zoom) / 2 - py) / (rect.height * zoom)) * 100))
     setScene(current => ({ ...current, tokens: current.tokens.map(t => t.id === dragRef.current.id ? { ...t, x, y } : t) }))
   }
 
-  const stagePointerUp = () => { dragRef.current = null }
+  const stagePointerUp = () => { dragRef.current = null; panDragRef.current = null }
 
   const addFogSpot = (event) => {
     if (tool !== 'fog' || !stageRef.current) return
     const rect = stageRef.current.getBoundingClientRect()
     const zoom = scene.zoom || 1
-    const x = ((event.clientX - rect.left - rect.width * (1 - zoom) / 2) / (rect.width * zoom)) * 100
-    const y = ((event.clientY - rect.top - rect.height * (1 - zoom) / 2) / (rect.height * zoom)) * 100
+    const px = scene.panX || 0, py = scene.panY || 0
+    const x = ((event.clientX - rect.left - rect.width * (1 - zoom) / 2 - px) / (rect.width * zoom)) * 100
+    const y = ((event.clientY - rect.top - rect.height * (1 - zoom) / 2 - py) / (rect.height * zoom)) * 100
     updateScene({ fog: [...scene.fog, { x, y, size: 18 }] })
   }
 
@@ -295,7 +318,7 @@ export default function App() {
         <div className="top-actions">
           <span className="save-status"><Save size={14}/>{status}</span>
           <button className="btn btn-quiet" onClick={() => setFreeze(!frozen)}>{frozen ? <Unlock size={16}/> : <Lock size={16}/>} {frozen ? 'Descongelar' : 'Congelar'}</button>
-          <button className="btn btn-primary" onClick={publish}><Send size={16}/> Publicar cena</button>
+          
           <button className="btn btn-gold" onClick={openProjection}><Monitor size={16}/> Abrir projeção</button>
         </div>
       </header>
@@ -315,12 +338,13 @@ export default function App() {
             <button className="tool-row danger-row" disabled={!selected} onClick={removeSelected}><Trash2 size={16}/><span>Remover selecionado</span></button>
             {selected && <div className="token-size-control">
               <label className="setting-row"><span>Tamanho da miniatura</span><strong>{scene.tokens.find(t => t.id === selected)?.size || 48}px</strong></label>
-              <input className="range" type="range" min="24" max="112" step="4" value={scene.tokens.find(t => t.id === selected)?.size || 48} onChange={e => resizeSelected(e.target.value)}/>
+              <input className="range" type="range" min="10" max="112" step="1" value={scene.tokens.find(t => t.id === selected)?.size || 48} onChange={e => resizeSelected(e.target.value)}/>
             </div>}
           </div>
           <div className="side-section">
             <div className="section-title">FERRAMENTAS DO MAPA</div>
-            <button className={`tool-row ${tool === 'select' ? 'active' : ''}`} onClick={() => setTool('select')}><MousePointer2 size={16}/><span>Selecionar / mover</span></button>
+            <button className={`tool-row ${tool === 'select' ? 'active' : ''}`} onClick={() => setTool('select')}><MousePointer2 size={16}/><span>Selecionar peças</span></button>
+            <button className={`tool-row ${tool === 'pan' ? 'active' : ''}`} onClick={() => setTool('pan')}><Hand size={16}/><span>Mover mapa</span></button>
             <button className={`tool-row ${tool === 'fog' ? 'active' : ''}`} onClick={() => setTool('fog')}><EyeOff size={16}/><span>Adicionar névoa</span></button>
             <button className="tool-row" onClick={clearFog}><Eye size={16}/><span>Limpar névoa</span></button>
           </div>
@@ -346,29 +370,30 @@ export default function App() {
             <button className="icon-btn" onClick={() => changeZoom(-0.1)} title="Diminuir zoom"><ZoomOut size={17}/></button>
             <span className="zoom-value">{Math.round(scene.zoom * 100)}%</span>
             <button className="icon-btn" onClick={() => changeZoom(0.1)} title="Aumentar zoom"><ZoomIn size={17}/></button>
-            <button className="icon-btn" onClick={() => updateScene({ zoom: 1 })} title="Redefinir zoom"><Maximize size={16}/></button>
+            <button className="icon-btn" onClick={() => updateScene({ zoom: 1, panX: 0, panY: 0 })} title="Redefinir zoom"><Maximize size={16}/></button>
           </div>
 
           <div className={`stage-wrap ${tool === 'fog' ? 'fog-cursor' : ''}`}>
             <div
               ref={stageRef}
               className="map-stage"
+              onPointerDown={e => stagePointerDown(e, null)}
               onPointerMove={stagePointerMove}
               onPointerUp={stagePointerUp}
               onPointerLeave={stagePointerUp}
               onClick={addFogSpot}
               style={{ backgroundColor: scene.background }}
             >
-              <div className="scene-content" style={{ transform: `scale(${scene.zoom})` }}>
+              <div className="scene-content" style={{ transform: `translate(${scene.panX || 0}px, ${scene.panY || 0}px) scale(${scene.zoom})` }}>
                 {scene.mapUrl ? <img className="map-image" src={scene.mapUrl} alt="Mapa importado" draggable="false" /> : (
                   <div className="map-placeholder"><div className="placeholder-emblem"><Swords size={42}/></div><h2>Seu campo de batalha começa aqui</h2><p>Importe uma imagem de mapa para começar a preparar o encontro.</p><label className="btn btn-primary"><Upload size={16}/> Escolher mapa<input type="file" accept="image/*" onChange={handleMapUpload}/></label></div>
                 )}
                 {scene.grid && <div className="grid-overlay" style={{ backgroundSize: `${scene.gridSize}px ${scene.gridSize}px` }}/>}
                 <div className="token-layer">
                   {scene.tokens.map(token => (
-                    <div key={token.id} className={`token token-${token.kind} ${selected === token.id ? 'token-selected' : ''}`} style={{ left: `${token.x}%`, top: `${token.y}%`, width: token.size, height: token.size }} onPointerDown={e => stagePointerDown(e, token)}>
+                    <div key={token.id} className={`token token-${token.kind} ${selected === token.id ? 'token-selected' : ''}`} style={{ left: `${token.x}%`, top: `${token.y}%`, width: token.size, height: token.size, fontSize: Math.max(7, token.size * 0.48) }} onPointerDown={e => stagePointerDown(e, token)}>
                       <span>{token.symbol}</span>
-                      {token.label && <small>{token.label}</small>}
+                      {token.label && token.size >= 22 && <small>{token.label}</small>}
                     </div>
                   ))}
                 </div>
@@ -379,7 +404,7 @@ export default function App() {
 
           <footer className="editor-footer">
             <div><span className="footer-indicator"/>{scene.mapName || 'Nenhum mapa importado'} <span className="footer-separator">·</span> {scene.tokens.length} peças</div>
-            <div className="footer-hint">{tool === 'fog' ? 'Clique no mapa para adicionar áreas de névoa' : 'Arraste as peças para posicioná-las'}</div>
+            <div className="footer-hint">{tool === 'fog' ? 'Clique no mapa para adicionar áreas de névoa' : tool === 'pan' ? 'Arraste para movimentar o mapa' : 'Arraste peças; arraste o fundo para mover o mapa'}</div>
             <button className="btn btn-quiet btn-small" onClick={() => { setScene(initialScene); setSelected(null) }}><RotateCcw size={14}/> Novo mapa</button>
           </footer>
         </main>

@@ -6,12 +6,13 @@ Primeira versão funcional (MVP) de um painel de mapas táticos para mestragem.
 - Importar mapas PNG, JPG e WEBP.
 - Adicionar peças de personagem, inimigo e NPC.
 - Arrastar peças pelo mapa e removê-las.
-- Zoom real do mapa e de todos os elementos da cena (botões + e -).
-- Redimensionamento individual das miniaturas selecionadas.
+- Zoom real do mapa e de todos os elementos da cena, de 10% até 500%.
+- Movimentação do mapa arrastando o fundo ou usando a ferramenta “Mover mapa”, inclusive após aproximar o zoom.
+- Redimensionamento individual das miniaturas selecionadas, de 10 a 112 px.
 - Grid configurável e névoa de guerra básica.
 - Janela de projeção independente (`?projection=1`).
-- Congelar/descongelar a cena publicada.
-- Publicar cena manualmente.
+- Congelar/descongelar a projeção: enquanto congelada, o painel pode ser editado sem alterar a imagem projetada; ao descongelar, a versão atual é sincronizada.
+- Atualização automática da projeção enquanto ela estiver descongelada.
 - Transição instantânea ou fade.
 - Rascunho salvo no armazenamento local do navegador.
 
@@ -42,10 +43,14 @@ O arquivo `netlify.toml` já contém a configuração de build e o redirecioname
 - Rascunhos e cenas publicadas agora usam IndexedDB, que suporta arquivos maiores do que o limite pequeno do localStorage. A projeção recebe apenas um aviso pelo BroadcastChannel e lê a cena salva no IndexedDB.
 - Rascunhos antigos no localStorage são migrados automaticamente quando possível.
 
-## Observações desta versão
+## Atualizações da versão 0.3
+- Removido o botão de publicação manual: a projeção acompanha as alterações automaticamente quando está descongelada.
+- Congelar mantém a imagem projetada parada enquanto o mestre prepara alterações; ao descongelar, a cena atual é enviada.
+- Zoom ampliado para 500%, com redução até 10%.
+- O mapa pode ser arrastado no painel e diretamente na janela de projeção.
+- Miniaturas podem ser reduzidas até 10 px.
+
+## Observações
 - A sincronização entre mestre e projeção usa BroadcastChannel e funciona entre abas/janelas do mesmo navegador e mesma origem.
-- A cena publicada é mantida no localStorage para que a janela de projeção possa carregá-la ao abrir.
-- Imagens grandes podem exceder a capacidade do localStorage. Para uso contínuo, a próxima etapa recomendada é migrar imagens e campanhas para IndexedDB e implementar exportação/importação de projetos.
-- A névoa desta versão é um marcador circular simples; a próxima evolução deve incluir desenho de regiões, borracha e revelação por pincel.
-- O modo congelar bloqueia a atualização da cena projetada; alterações no rascunho continuam no painel do mestre.
-- O botão de tela preta é uma próxima melhoria de interface; nesta base, a mensagem de blackout já está preparada no canal de comunicação.
+- Rascunhos e cena projetada usam IndexedDB.
+- A névoa desta versão é um marcador circular simples; uma próxima evolução pode incluir desenho de regiões, borracha e revelação por pincel.
