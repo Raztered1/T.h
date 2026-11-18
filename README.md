@@ -6,7 +6,9 @@ Primeira versão funcional (MVP) de um painel de mapas táticos para mestragem.
 - Importar mapas PNG, JPG e WEBP.
 - Adicionar peças de personagem, inimigo e NPC.
 - Arrastar peças pelo mapa e removê-las.
-- Zoom, grid configurável e névoa de guerra básica.
+- Zoom real do mapa e de todos os elementos da cena (botões + e -).
+- Redimensionamento individual das miniaturas selecionadas.
+- Grid configurável e névoa de guerra básica.
 - Janela de projeção independente (`?projection=1`).
 - Congelar/descongelar a cena publicada.
 - Publicar cena manualmente.
@@ -33,6 +35,12 @@ Abra o endereço local mostrado pelo Vite. Clique em **Abrir projeção** e arra
 6. Publique.
 
 O arquivo `netlify.toml` já contém a configuração de build e o redirecionamento SPA.
+
+## Correções da versão 0.2
+- Zoom agora aplica escala visual ao mapa, grid, névoa e miniaturas, também na projeção.
+- Miniatura selecionada pode ser redimensionada pelo controle lateral (24 a 112 px).
+- Rascunhos e cenas publicadas agora usam IndexedDB, que suporta arquivos maiores do que o limite pequeno do localStorage. A projeção recebe apenas um aviso pelo BroadcastChannel e lê a cena salva no IndexedDB.
+- Rascunhos antigos no localStorage são migrados automaticamente quando possível.
 
 ## Observações desta versão
 - A sincronização entre mestre e projeção usa BroadcastChannel e funciona entre abas/janelas do mesmo navegador e mesma origem.

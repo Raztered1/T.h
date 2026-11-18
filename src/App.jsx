@@ -6,7 +6,41 @@ import {
 } from 'lucide-react'
 
 const CHANNEL_NAME = 'central-mestragem-dnd'
-const STORAGE_KEY = 'central-mestragem-dnd-scene-v1'
+const DB_NAME = 'central-mestragem-dnd-db'
+const DB_STORE = 'scenes'
+const DRAFT_KEY = 'draft'
+const PUBLISHED_KEY = 'published'
+
+function openSceneDB() {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(DB_NAME, 1)
+    request.onupgradeneeded = () => {
+      if (!request.result.objectStoreNames.contains(DB_STORE)) request.result.createObjectStore(DB_STORE)
+    }
+    request.onsuccess = () => resolve(request.result)
+    request.onerror = () => reject(request.error)
+  })
+}
+
+async function saveScene(key, value) {
+  const db = await openSceneDB()
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(DB_STORE, 'readwrite')
+    tx.objectStore(DB_STORE).put(value, key)
+    tx.oncomplete = () => { db.close(); resolve() }
+    tx.onerror = () => { db.close(); reject(tx.error) }
+  })
+}
+
+async function loadScene(key) {
+  const db = await openSceneDB()
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(DB_STORE, 'readonly')
+    const request = tx.objectStore(DB_STORE).get(key)
+    request.onsuccess = () => { const value = request.result; db.close(); resolve(value) }
+    request.onerror = () => { db.close(); reject(request.error) }
+  })
+}
 
 const initialScene = {
   title: 'Novo encontro',
@@ -18,15 +52,6 @@ const initialScene = {
   tokens: [],
   fog: [],
   background: '#171713'
-}
-
-function readPublished() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    return raw ? JSON.parse(raw) : initialScene
-  } catch {
-    return initialScene
-  }
 }
 
 function useChannel() {
@@ -41,7 +66,7 @@ function useChannel() {
 }
 
 function Projection() {
-  const [scene, setScene] = useState(readPublished)
+  const [scene, setScene] = useState(initialScene)
   const [frozen, setFrozen] = useState(false)
   const [showBlack, setShowBlack] = useState(false)
   const [transition, setTransition] = useState('fade')
@@ -49,23 +74,25 @@ function Projection() {
   const channelRef = useChannel()
 
   useEffect(() => {
+    loadScene(PUBLISHED_KEY).then(saved => { if (saved) setScene(saved) }).catch(() => {})
+  }, [])
+
+  useEffect(() => {
     const channel = channelRef.current
     if (!channel) return
-    channel.onmessage = (event) => {
+    channel.onmessage = async (event) => {
       const message = event.data
       if (message?.type === 'freeze') setFrozen(Boolean(message.value))
       if (message?.type === 'blackout') setShowBlack(Boolean(message.value))
       if (message?.type === 'transition') setTransition(message.value)
       if (message?.type === 'publish' && !frozen) {
+        if (message.transition) setTransition(message.transition)
+        const nextScene = await loadScene(PUBLISHED_KEY).catch(() => null)
+        if (!nextScene) return
         if (transition === 'fade') {
           setChanging(true)
-          window.setTimeout(() => {
-            setScene(message.scene)
-            setChanging(false)
-          }, 350)
-        } else {
-          setScene(message.scene)
-        }
+          window.setTimeout(() => { setScene(nextScene); setChanging(false) }, 350)
+        } else setScene(nextScene)
       }
     }
   }, [channelRef, frozen, transition])
@@ -82,19 +109,21 @@ function Projection() {
     <main className={`projection ${changing ? 'projection-changing' : ''}`}>
       {showBlack ? <div className="blackout" /> : (
         <div className="projection-stage">
-          {scene.mapUrl ? <img className="projection-map" src={scene.mapUrl} alt="Mapa da sessão" /> : (
-            <div className="projection-empty"><Swords size={46}/><span>Aguardando mapa do mestre</span></div>
-          )}
-          {scene.grid && <div className="projection-grid" style={{ backgroundSize: `${scene.gridSize * scene.zoom}px ${scene.gridSize * scene.zoom}px` }} />}
-          <div className="projection-tokens">
-            {(scene.tokens || []).map(token => (
-              <div key={token.id} className={`token token-${token.kind}`} style={{ left: `${token.x}%`, top: `${token.y}%`, width: token.size, height: token.size }}>
-                <span>{token.symbol}</span>
-                {token.label && <small>{token.label}</small>}
-              </div>
-            ))}
+          <div className="scene-content" style={{ transform: `scale(${scene.zoom || 1})` }}>
+            {scene.mapUrl ? <img className="projection-map" src={scene.mapUrl} alt="Mapa da sessão" /> : (
+              <div className="projection-empty"><Swords size={46}/><span>Aguardando mapa do mestre</span></div>
+            )}
+            {scene.grid && <div className="projection-grid" style={{ backgroundSize: `${scene.gridSize}px ${scene.gridSize}px` }} />}
+            <div className="projection-tokens">
+              {(scene.tokens || []).map(token => (
+                <div key={token.id} className={`token token-${token.kind}`} style={{ left: `${token.x}%`, top: `${token.y}%`, width: token.size, height: token.size }}>
+                  <span>{token.symbol}</span>
+                  {token.label && <small>{token.label}</small>}
+                </div>
+              ))}
+            </div>
+            <FogLayer fog={scene.fog || []} />
           </div>
-          <FogLayer fog={scene.fog || []} />
         </div>
       )}
       <div className="projection-status">
@@ -121,21 +150,37 @@ export default function App() {
   const [transition, setTransition] = useState('fade')
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [status, setStatus] = useState('Edições ainda não publicadas')
+  const [draftLoaded, setDraftLoaded] = useState(false)
   const stageRef = useRef(null)
   const dragRef = useRef(null)
   const channelRef = useChannel()
 
   useEffect(() => {
-    try {
-      const saved = localStorage.getItem('central-mestragem-dnd-draft-v1')
-      if (saved) setScene(JSON.parse(saved))
-    } catch { /* ignore invalid local draft */ }
+    loadScene(DRAFT_KEY).then(async saved => {
+      if (saved) {
+        setScene(saved)
+        return
+      }
+      // Migra automaticamente um rascunho antigo que tenha sido salvo em localStorage.
+      try {
+        const legacy = localStorage.getItem('central-mestragem-dnd-draft-v1')
+        if (legacy) {
+          const parsed = JSON.parse(legacy)
+          setScene(parsed)
+          await saveScene(DRAFT_KEY, parsed)
+        }
+      } catch { /* ignora dados antigos inválidos */ }
+    }).catch(() => {
+      setStatus('Não foi possível acessar o armazenamento local do navegador.')
+    }).finally(() => setDraftLoaded(true))
   }, [])
 
   useEffect(() => {
-    try { localStorage.setItem('central-mestragem-dnd-draft-v1', JSON.stringify(scene)) }
-    catch { setStatus('Armazenamento local cheio: exporte ou reduza o tamanho da imagem do mapa.') }
-  }, [scene])
+    if (!draftLoaded) return
+    saveScene(DRAFT_KEY, scene).catch(() => {
+      setStatus('Falha ao salvar o rascunho. Verifique o espaço disponível no navegador.')
+    })
+  }, [scene, draftLoaded])
 
   const updateScene = useCallback((patch) => {
     setScene(current => ({ ...current, ...patch }))
@@ -153,6 +198,10 @@ export default function App() {
     updateScene({ tokens: [...scene.tokens, token] })
     setSelected(token.id)
     setTool('select')
+  }
+
+  const resizeSelected = (size) => {
+    updateScene({ tokens: scene.tokens.map(t => t.id === selected ? { ...t, size: Number(size) } : t) })
   }
 
   const removeSelected = () => {
@@ -173,17 +222,17 @@ export default function App() {
     event.target.value = ''
   }
 
-  const publish = () => {
+  const publish = async () => {
     if (frozen) {
       setStatus('Descongele a projeção antes de publicar uma nova cena.')
       return
     }
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(scene))
-      channelRef.current?.postMessage({ type: 'publish', scene })
+      await saveScene(PUBLISHED_KEY, scene)
+      channelRef.current?.postMessage({ type: 'publish', transition })
       setStatus('Cena publicada na projeção')
     } catch {
-      setStatus('Não foi possível publicar. A imagem pode ser grande demais para o armazenamento local.')
+      setStatus('Não foi possível salvar a cena no navegador. Tente uma imagem menor ou libere espaço.')
     }
   }
 
@@ -218,8 +267,9 @@ export default function App() {
   const stagePointerMove = (event) => {
     if (!dragRef.current || !stageRef.current) return
     const rect = stageRef.current.getBoundingClientRect()
-    const x = Math.max(0, Math.min(100, ((event.clientX - rect.left) / rect.width) * 100))
-    const y = Math.max(0, Math.min(100, ((event.clientY - rect.top) / rect.height) * 100))
+    const zoom = scene.zoom || 1
+    const x = Math.max(0, Math.min(100, ((event.clientX - rect.left - rect.width * (1 - zoom) / 2) / (rect.width * zoom)) * 100))
+    const y = Math.max(0, Math.min(100, ((event.clientY - rect.top - rect.height * (1 - zoom) / 2) / (rect.height * zoom)) * 100))
     setScene(current => ({ ...current, tokens: current.tokens.map(t => t.id === dragRef.current.id ? { ...t, x, y } : t) }))
   }
 
@@ -228,8 +278,9 @@ export default function App() {
   const addFogSpot = (event) => {
     if (tool !== 'fog' || !stageRef.current) return
     const rect = stageRef.current.getBoundingClientRect()
-    const x = ((event.clientX - rect.left) / rect.width) * 100
-    const y = ((event.clientY - rect.top) / rect.height) * 100
+    const zoom = scene.zoom || 1
+    const x = ((event.clientX - rect.left - rect.width * (1 - zoom) / 2) / (rect.width * zoom)) * 100
+    const y = ((event.clientY - rect.top - rect.height * (1 - zoom) / 2) / (rect.height * zoom)) * 100
     updateScene({ fog: [...scene.fog, { x, y, size: 18 }] })
   }
 
@@ -262,6 +313,10 @@ export default function App() {
             <button className="tool-row" onClick={() => addToken('enemy')}><span className="tool-emoji">💀</span><span>Adicionar inimigo</span><Plus size={15}/></button>
             <button className="tool-row" onClick={() => addToken('npc')}><span className="tool-emoji">🧙</span><span>Adicionar NPC</span><Plus size={15}/></button>
             <button className="tool-row danger-row" disabled={!selected} onClick={removeSelected}><Trash2 size={16}/><span>Remover selecionado</span></button>
+            {selected && <div className="token-size-control">
+              <label className="setting-row"><span>Tamanho da miniatura</span><strong>{scene.tokens.find(t => t.id === selected)?.size || 48}px</strong></label>
+              <input className="range" type="range" min="24" max="112" step="4" value={scene.tokens.find(t => t.id === selected)?.size || 48} onChange={e => resizeSelected(e.target.value)}/>
+            </div>}
           </div>
           <div className="side-section">
             <div className="section-title">FERRAMENTAS DO MAPA</div>
@@ -304,24 +359,21 @@ export default function App() {
               onClick={addFogSpot}
               style={{ backgroundColor: scene.background }}
             >
-              {scene.mapUrl ? <img className="map-image" src={scene.mapUrl} alt="Mapa importado" draggable="false" /> : (
-                <div className="map-placeholder"><div className="placeholder-emblem"><Swords size={42}/></div><h2>Seu campo de batalha começa aqui</h2><p>Importe uma imagem de mapa para começar a preparar o encontro.</p><label className="btn btn-primary"><Upload size={16}/> Escolher mapa<input type="file" accept="image/*" onChange={handleMapUpload}/></label></div>
-              )}
-              {scene.grid && <div className="grid-overlay" style={{ backgroundSize: `${scene.gridSize * scene.zoom}px ${scene.gridSize * scene.zoom}px` }}/>}
-              <div className="token-layer">
-                {scene.tokens.map(token => (
-                  <div
-                    key={token.id}
-                    className={`token token-${token.kind} ${selected === token.id ? 'token-selected' : ''}`}
-                    style={{ left: `${token.x}%`, top: `${token.y}%`, width: token.size, height: token.size }}
-                    onPointerDown={e => stagePointerDown(e, token)}
-                  >
-                    <span>{token.symbol}</span>
-                    {token.label && <small>{token.label}</small>}
-                  </div>
-                ))}
+              <div className="scene-content" style={{ transform: `scale(${scene.zoom})` }}>
+                {scene.mapUrl ? <img className="map-image" src={scene.mapUrl} alt="Mapa importado" draggable="false" /> : (
+                  <div className="map-placeholder"><div className="placeholder-emblem"><Swords size={42}/></div><h2>Seu campo de batalha começa aqui</h2><p>Importe uma imagem de mapa para começar a preparar o encontro.</p><label className="btn btn-primary"><Upload size={16}/> Escolher mapa<input type="file" accept="image/*" onChange={handleMapUpload}/></label></div>
+                )}
+                {scene.grid && <div className="grid-overlay" style={{ backgroundSize: `${scene.gridSize}px ${scene.gridSize}px` }}/>}
+                <div className="token-layer">
+                  {scene.tokens.map(token => (
+                    <div key={token.id} className={`token token-${token.kind} ${selected === token.id ? 'token-selected' : ''}`} style={{ left: `${token.x}%`, top: `${token.y}%`, width: token.size, height: token.size }} onPointerDown={e => stagePointerDown(e, token)}>
+                      <span>{token.symbol}</span>
+                      {token.label && <small>{token.label}</small>}
+                    </div>
+                  ))}
+                </div>
+                <FogLayer fog={scene.fog}/>
               </div>
-              <FogLayer fog={scene.fog}/>
             </div>
           </div>
 
