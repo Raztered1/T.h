@@ -11,6 +11,26 @@ const DB_STORE = 'scenes'
 const DRAFT_KEY = 'draft'
 const PUBLISHED_KEY = 'published'
 
+// Símbolos disponíveis para representar as classes clássicas de D&D.
+const CLASS_ICONS = [
+  { name: 'Artífice', symbol: '⚙️' },
+  { name: 'Bárbaro', symbol: '🪓' },
+  { name: 'Bardo', symbol: '🎵' },
+  { name: 'Clérigo', symbol: '✨' },
+  { name: 'Druida', symbol: '🍃' },
+  { name: 'Guerreiro', symbol: '⚔️' },
+  { name: 'Monge', symbol: '👊' },
+  { name: 'Paladino', symbol: '🛡️' },
+  { name: 'Patrulheiro', symbol: '🏹' },
+  { name: 'Ladino', symbol: '🗡️' },
+  { name: 'Feiticeiro', symbol: '🔥' },
+  { name: 'Bruxo', symbol: '🌑' },
+  { name: 'Mago', symbol: '🪄' },
+  { name: 'Monstro', symbol: '💀' },
+  { name: 'NPC', symbol: '🧙' },
+  { name: 'Personagem', symbol: '🎭' },
+]
+
 function openSceneDB() {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, 1)
@@ -69,17 +89,18 @@ function useChannel() {
 
 function Projection() {
   const [scene, setScene] = useState(initialScene)
+  const sceneRef = useRef(scene)
+  sceneRef.current = scene
   const [frozen, setFrozen] = useState(false)
   const [showBlack, setShowBlack] = useState(false)
   const [transition, setTransition] = useState('fade')
   const [changing, setChanging] = useState(false)
-  const [pan, setPan] = useState({ x: 0, y: 0 })
   const panDragRef = useRef(null)
   const projectionStageRef = useRef(null)
   const channelRef = useChannel()
 
   useEffect(() => {
-    loadScene(PUBLISHED_KEY).then(saved => { if (saved) { setScene(saved); setPan({ x: saved.panX || 0, y: saved.panY || 0 }) } }).catch(() => {})
+    loadScene(PUBLISHED_KEY).then(saved => { if (saved) setScene(saved) }).catch(() => {})
   }, [])
 
   useEffect(() => {
@@ -110,35 +131,59 @@ function Projection() {
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
-  const projectionPointerDown = (event) => {
-    if (event.button !== 0) return
-    panDragRef.current = { x: event.clientX, y: event.clientY, panX: pan.x, panY: pan.y }
+  const projectionPointerDown = (event, token) => {
+    if (event.button !== 0 || frozen) return
+    if (token) {
+      event.preventDefault(); event.stopPropagation()
+      panDragRef.current = { type: 'token', id: token.id }
+    } else {
+      panDragRef.current = { type: 'pan', x: event.clientX, y: event.clientY, panX: scene.panX || 0, panY: scene.panY || 0 }
+    }
     event.currentTarget.setPointerCapture?.(event.pointerId)
   }
   const projectionPointerMove = (event) => {
-    if (!panDragRef.current) return
-    setPan({ x: panDragRef.current.panX + event.clientX - panDragRef.current.x, y: panDragRef.current.panY + event.clientY - panDragRef.current.y })
+    const drag = panDragRef.current
+    if (!drag || frozen || !projectionStageRef.current) return
+    if (drag.type === 'pan') {
+      setScene(current => ({ ...current, panX: drag.panX + event.clientX - drag.x, panY: drag.panY + event.clientY - drag.y }))
+      return
+    }
+    const rect = projectionStageRef.current.getBoundingClientRect()
+    const zoom = scene.zoom || 1
+    const x = Math.max(0, Math.min(100, (((event.clientX - rect.left - rect.width / 2 - (scene.panX || 0)) / zoom) + rect.width / 2) / rect.width * 100))
+    const y = Math.max(0, Math.min(100, (((event.clientY - rect.top - rect.height / 2 - (scene.panY || 0)) / zoom) + rect.height / 2) / rect.height * 100))
+    setScene(current => ({ ...current, tokens: current.tokens.map(item => item.id === drag.id ? { ...item, x, y } : item) }))
   }
-  const projectionPointerUp = () => { panDragRef.current = null }
+  const projectionPointerUp = () => {
+    const drag = panDragRef.current
+    if (drag?.type === 'token' || drag?.type === 'pan') {
+      const latestScene = sceneRef.current
+      saveScene(PUBLISHED_KEY, latestScene).catch(() => {})
+      channelRef.current?.postMessage({ type: 'projection-edit', scene: latestScene })
+    }
+    panDragRef.current = null
+  }
 
   return (
     <main className={`projection ${changing ? 'projection-changing' : ''}`}>
       {showBlack ? <div className="blackout" /> : (
-        <div ref={projectionStageRef} className="projection-stage" onPointerDown={projectionPointerDown} onPointerMove={projectionPointerMove} onPointerUp={projectionPointerUp} onPointerLeave={projectionPointerUp}>
-          <div className="scene-content" style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${scene.zoom || 1})` }}>
+        <div className="projection-stage">
+          <div ref={projectionStageRef} className="projection-canvas" onPointerDown={e => projectionPointerDown(e, null)} onPointerMove={projectionPointerMove} onPointerUp={projectionPointerUp} onPointerCancel={projectionPointerUp}>
+          <div className="scene-content" style={{ transform: `translate(${scene.panX || 0}px, ${scene.panY || 0}px) scale(${scene.zoom || 1})` }}>
             {scene.mapUrl ? <img className="projection-map" src={scene.mapUrl} alt="Mapa da sessão" /> : (
               <div className="projection-empty"><Swords size={46}/><span>Aguardando mapa do mestre</span></div>
             )}
             {scene.grid && <div className="projection-grid" style={{ backgroundSize: `${scene.gridSize}px ${scene.gridSize}px` }} />}
             <div className="projection-tokens">
               {(scene.tokens || []).map(token => (
-                <div key={token.id} className={`token token-${token.kind}`} style={{ left: `${token.x}%`, top: `${token.y}%`, width: token.size, height: token.size, fontSize: Math.max(7, token.size * 0.48) }}>
+                <div key={token.id} className={`token token-${token.kind}`} style={{ left: `${token.x}%`, top: `${token.y}%`, width: token.size, height: token.size, fontSize: Math.max(7, token.size * 0.48) }} onPointerDown={e => projectionPointerDown(e, token)}>
                   <span>{token.symbol}</span>
                   {token.label && token.size >= 22 && <small>{token.label}</small>}
                 </div>
               ))}
             </div>
             <FogLayer fog={scene.fog || []} />
+          </div>
           </div>
         </div>
       )}
@@ -171,6 +216,18 @@ export default function App() {
   const dragRef = useRef(null)
   const panDragRef = useRef(null)
   const channelRef = useChannel()
+
+  useEffect(() => {
+    const channel = channelRef.current
+    if (!channel) return
+    channel.onmessage = (event) => {
+      if (event.data?.type === 'projection-edit' && event.data.scene) {
+        setScene(event.data.scene)
+        setStatus('Peças atualizadas pela projeção')
+      }
+    }
+    return () => { channel.onmessage = null }
+  }, [channelRef])
 
   useEffect(() => {
     loadScene(DRAFT_KEY).then(async saved => {
@@ -224,9 +281,11 @@ export default function App() {
     setTool('select')
   }
 
-  const resizeSelected = (size) => {
-    updateScene({ tokens: scene.tokens.map(t => t.id === selected ? { ...t, size: Number(size) } : t) })
+  const updateSelectedToken = (patch) => {
+    updateScene({ tokens: scene.tokens.map(t => t.id === selected ? { ...t, ...patch } : t) })
   }
+
+  const resizeSelected = (size) => updateSelectedToken({ size: Number(size) })
 
   const removeSelected = () => {
     updateScene({ tokens: scene.tokens.filter(t => t.id !== selected) })
@@ -260,7 +319,7 @@ export default function App() {
   }
 
   const openProjection = () => {
-    const win = window.open(`${window.location.pathname}?projection=1`, 'dnd-projection')
+    const win = window.open(`${window.location.pathname}?projection=1`, 'dnd-projection', 'popup=yes,width=1280,height=800,resizable=yes,scrollbars=no')
     if (!win) setStatus('O navegador bloqueou a janela. Permita pop-ups para este site.')
   }
 
@@ -336,7 +395,27 @@ export default function App() {
             <button className="tool-row" onClick={() => addToken('enemy')}><span className="tool-emoji">💀</span><span>Adicionar inimigo</span><Plus size={15}/></button>
             <button className="tool-row" onClick={() => addToken('npc')}><span className="tool-emoji">🧙</span><span>Adicionar NPC</span><Plus size={15}/></button>
             <button className="tool-row danger-row" disabled={!selected} onClick={removeSelected}><Trash2 size={16}/><span>Remover selecionado</span></button>
-            {selected && <div className="token-size-control">
+            {selected && scene.tokens.some(t => t.id === selected) && <div className="token-size-control token-edit-control">
+              <div className="section-title">EDITAR PEÇA SELECIONADA</div>
+              <label className="field-label" htmlFor="selected-token-name">Nome da peça</label>
+              <input
+                id="selected-token-name"
+                className="token-name-input"
+                type="text"
+                maxLength={32}
+                value={scene.tokens.find(t => t.id === selected)?.label || ''}
+                placeholder="Ex.: Tharion, Dragão Vermelho..."
+                onChange={e => updateSelectedToken({ label: e.target.value })}
+              />
+              <label className="field-label">Símbolo / classe</label>
+              <div className="class-icon-grid">
+                {CLASS_ICONS.map(option => {
+                  const active = scene.tokens.find(t => t.id === selected)?.symbol === option.symbol
+                  return <button key={option.name} type="button" className={`class-icon-option ${active ? 'active' : ''}`} title={option.name} aria-label={`Usar símbolo de ${option.name}`} onClick={() => updateSelectedToken({ symbol: option.symbol })}>
+                    <span>{option.symbol}</span><small>{option.name}</small>
+                  </button>
+                })}
+              </div>
               <label className="setting-row"><span>Tamanho da miniatura</span><strong>{scene.tokens.find(t => t.id === selected)?.size || 48}px</strong></label>
               <input className="range" type="range" min="10" max="112" step="1" value={scene.tokens.find(t => t.id === selected)?.size || 48} onChange={e => resizeSelected(e.target.value)}/>
             </div>}

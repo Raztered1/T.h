@@ -29,3 +29,24 @@
 .projection-stage .scene-content{position:absolute;inset:0;transform-origin:center center;will-change:transform}
 .token-size-control{margin:5px 3px 2px;padding:8px 7px;background:#222119;border:1px solid #393529;border-radius:6px}
 .token-size-control .setting-row{padding:2px 0 7px}
+
+/* A projeção usa a mesma proporção do palco de edição para manter as peças alinhadas. */
+.projection-stage{overflow:hidden;display:flex;align-items:center;justify-content:center}
+.projection-canvas{position:relative;width:min(100vw, calc(100vh * 1.6), 1200px);aspect-ratio:16/10;max-height:100vh;overflow:hidden;background:#080808;touch-action:none;user-select:none}
+.projection-canvas .scene-content{position:absolute;inset:0;transform-origin:center center;will-change:transform}
+.projection-canvas .token{cursor:grab;touch-action:none}
+.projection-canvas .token:active{cursor:grabbing}
+/* Mantém o palco do editor exatamente em 16:10, como a janela de projeção. */
+.stage-wrap .map-stage{width:min(100%, 1200px, calc((100vh - 201px) * 1.6));height:auto;aspect-ratio:16/10;max-height:100%}
+
+/* Edição individual de nome e símbolo das peças. */
+.token-edit-control{display:flex;flex-direction:column;gap:7px}
+.field-label{font-size:10px;color:#bdb49f;margin:3px 1px 0}
+.token-name-input{width:100%;min-width:0;background:#151510;border:1px solid #494437;border-radius:5px;color:#eee5d2;padding:8px;font-size:11px;outline:none}
+.token-name-input:focus{border-color:#b18c48;box-shadow:0 0 0 2px #b18c4828}
+.class-icon-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:5px;margin:2px 0 5px}
+.class-icon-option{min-width:0;min-height:54px;padding:5px 2px;border:1px solid #3b382e;border-radius:6px;background:#1a1a15;color:#d8d0bd;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px}
+.class-icon-option span{font-size:20px;line-height:1.2}
+.class-icon-option small{font-size:8px;line-height:1.15;text-align:center;white-space:normal;color:#a9a18e}
+.class-icon-option:hover,.class-icon-option.active{border-color:#b18c48;background:#30291b;color:#f1d18a}
+.class-icon-option.active small{color:#f1d18a}

@@ -54,3 +54,19 @@ O arquivo `netlify.toml` já contém a configuração de build e o redirecioname
 - A sincronização entre mestre e projeção usa BroadcastChannel e funciona entre abas/janelas do mesmo navegador e mesma origem.
 - Rascunhos e cena projetada usam IndexedDB.
 - A névoa desta versão é um marcador circular simples; uma próxima evolução pode incluir desenho de regiões, borracha e revelação por pincel.
+
+
+## Atualizações da versão 0.4
+
+- A projeção é aberta em uma janela separada (popup), redimensionável, para facilitar o envio apenas dessa janela à TV/projetor. O navegador pode solicitar permissão para pop-ups.
+- A área da projeção usa a mesma proporção 16:10 do palco de edição, reduzindo diferenças de posicionamento entre as telas.
+- É possível arrastar personagens, inimigos e NPCs diretamente na janela de projeção. As posições são sincronizadas com o painel do mestre.
+- Também é possível arrastar o fundo na projeção para reposicionar o mapa.
+- Enquanto a cena estiver congelada, a projeção bloqueia movimentações para preservar a imagem exibida.
+
+
+## Versão 0.5
+
+- Cada peça selecionada pode receber um nome personalizado.
+- Seletor de símbolos com opções para as classes de D&D (Artífice, Bárbaro, Bardo, Clérigo, Druida, Guerreiro, Monge, Paladino, Patrulheiro, Ladino, Feiticeiro, Bruxo e Mago), além de símbolos para monstro, NPC e personagem genérico.
+- Nome e símbolo são salvos junto com a cena e aparecem também na projeção.
