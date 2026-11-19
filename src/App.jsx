@@ -2,7 +2,9 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Swords, Upload, Grid3X3, Eye, EyeOff, Plus, Trash2, ZoomIn, ZoomOut,
   Maximize, Monitor, Lock, Unlock, Image as ImageIcon, MousePointer2,
-  Hand, RotateCcw, Shield, Users, Skull, Save, PanelLeftClose, PanelLeftOpen
+  Hand, RotateCcw, Shield, Users, Skull, Save, PanelLeftClose, PanelLeftOpen,
+  BookOpen, ScrollText, NotebookPen, Flag, UsersRound, Clock3, Dices, CalendarDays,
+  ChevronRight, PlusCircle, CircleHelp, ListChecks, Swords as SwordsIcon
 } from 'lucide-react'
 
 const CHANNEL_NAME = 'central-mestragem-dnd'
@@ -200,6 +202,69 @@ function FogLayer({ fog }) {
   ))}</div>
 }
 
+const SHIELD_KEY = 'master-shield'
+const defaultShield = {
+  session: { campaign: '', session: '1', date: '', place: '', weather: '', time: '' },
+  rules: [
+    { id: 'easy', name: 'Muito fácil', dc: 5 }, { id: 'simple', name: 'Fácil', dc: 10 },
+    { id: 'moderate', name: 'Moderada', dc: 15 }, { id: 'hard', name: 'Difícil', dc: 20 },
+    { id: 'very-hard', name: 'Muito difícil', dc: 25 }, { id: 'nearly-impossible', name: 'Quase impossível', dc: 30 },
+  ],
+  combat: { round: 1, turn: 0, active: false, participants: [] },
+  npcs: [], missions: [], clues: [], locations: [], history: [], notes: ''
+}
+const makeId = () => globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`
+
+function ShieldPanel() {
+  const [data, setData] = useState(defaultShield)
+  const [tab, setTab] = useState('overview')
+  const [loaded, setLoaded] = useState(false)
+  const [draft, setDraft] = useState({ name: '', detail: '' })
+  const [newName, setNewName] = useState('')
+  const [saved, setSaved] = useState('Carregando dados…')
+  useEffect(() => { loadScene(SHIELD_KEY).then(v => { if (v) setData({ ...defaultShield, ...v, session: { ...defaultShield.session, ...(v.session || {}) }, combat: { ...defaultShield.combat, ...(v.combat || {}) } }) }).catch(() => {}).finally(() => setLoaded(true)) }, [])
+  useEffect(() => { if (!loaded) return; const timer = setTimeout(() => saveScene(SHIELD_KEY, data).then(() => setSaved('Salvo automaticamente')).catch(() => setSaved('Falha ao salvar')), 250); return () => clearTimeout(timer) }, [data, loaded])
+  const patch = (key, value) => setData(d => ({ ...d, [key]: value }))
+  const patchSession = (key, value) => setData(d => ({ ...d, session: { ...d.session, [key]: value } }))
+  const addRecord = (key, name, detail = '') => { if (!name.trim()) return; patch(key, [...(data[key] || []), { id: makeId(), name: name.trim(), detail, important: false }]); setNewName(''); setDraft({ name: '', detail: '' }) }
+  const removeRecord = (key, id) => patch(key, data[key].filter(x => x.id !== id))
+  const updateRecord = (key, id, changes) => patch(key, data[key].map(x => x.id === id ? { ...x, ...changes } : x))
+  const addLog = () => addRecord('history', `Registro — ${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`, '')
+  const addCombatant = () => { if (!newName.trim()) return; const item = { id: makeId(), name: newName.trim(), initiative: 0, hp: '', maxHp: '', conditions: '' }; setData(d => ({ ...d, combat: { ...d.combat, active: true, participants: [...d.combat.participants, item].sort((a,b) => b.initiative-a.initiative) } })); setNewName('') }
+  const updateCombatant = (id, changes) => setData(d => ({ ...d, combat: { ...d.combat, participants: d.combat.participants.map(x => x.id === id ? { ...x, ...changes } : x).sort((a,b) => b.initiative-a.initiative) } }))
+  const removeCombatant = id => setData(d => ({ ...d, combat: { ...d.combat, participants: d.combat.participants.filter(x => x.id !== id), turn: 0 } }))
+  const advanceTurn = (direction = 1) => setData(d => { const count = d.combat.participants.length; if (!count) return d; let next = d.combat.turn + direction, round = d.combat.round; if (next >= count) { next = 0; round++ } if (next < 0) { next = count - 1; round = Math.max(1, round - 1) } return { ...d, combat: { ...d.combat, active: true, turn: next, round } } })
+  const nav = [ ['overview','Visão geral',Shield], ['rules','Regras rápidas',BookOpen], ['initiative','Iniciativa',SwordsIcon], ['npcs','NPCs e personagens',UsersRound], ['adventure','Aventura',Flag], ['history','Histórico',Clock3], ['notes','Anotações',NotebookPen] ]
+  return <section className="shield-workspace">
+    <aside className="shield-sidebar"><div className="shield-side-title"><span>ESCUDO DO MESTRE</span><small>CONSULTA RÁPIDA</small></div>
+      {nav.map(([id,label,Icon]) => <button key={id} className={`shield-nav ${tab===id?'active':''}`} onClick={() => setTab(id)}><Icon size={17}/><span>{label}</span><ChevronRight size={14}/></button>)}
+      <div className="shield-side-foot"><Shield size={15}/> Dados salvos neste navegador</div>
+    </aside>
+    <main className="shield-main">
+      <div className="shield-heading"><div><span className="eyebrow">CENTRAL DE MESTRAGEM / ESCUDO</span><h1>{nav.find(x=>x[0]===tab)?.[1]}</h1><p>Seu painel de consulta e organização durante a sessão.</p></div><span className="shield-save"><span className="live-dot"/>{saved}</span></div>
+      {tab==='overview' && <div className="shield-content">
+        <div className="shield-section-head"><h2>Informações da sessão</h2><span>EDITÁVEL</span></div>
+        <div className="shield-form-grid">
+          {[['campaign','Campanha','Ex.: Nome da campanha'],['session','Sessão','Número ou identificação'],['date','Data',''],['place','Local','Onde a sessão acontece'],['weather','Clima','Ex.: chuva forte'],['time','Horário / período','Ex.: noite']].map(([key,label,placeholder])=><label className="shield-field" key={key}><span>{label}</span><input value={data.session[key]||''} placeholder={placeholder} type={key==='date'?'date':'text'} onChange={e=>patchSession(key,e.target.value)}/></label>)}
+        </div>
+        <div className="shield-overview-grid"><button className="shield-summary-card" onClick={()=>setTab('initiative')}><Swords size={20}/><strong>{data.combat.participants.length} participantes</strong><small>{data.combat.active?'Combate em andamento':'Abrir controle de iniciativa'}</small></button><button className="shield-summary-card" onClick={()=>setTab('npcs')}><UsersRound size={20}/><strong>{data.npcs.length} NPCs / personagens</strong><small>Consultar fichas rápidas</small></button><button className="shield-summary-card" onClick={()=>setTab('adventure')}><Flag size={20}/><strong>{data.missions.length} objetivos</strong><small>Missões e elementos da aventura</small></button><button className="shield-summary-card" onClick={()=>setTab('history')}><Clock3 size={20}/><strong>{data.history.length} registros</strong><small>Eventos anotados nesta sessão</small></button></div>
+        <div className="shield-tip"><CircleHelp size={17}/><span>Use o menu lateral para acessar regras, iniciativa, NPCs, pistas, locais e histórico sem sair do escudo.</span></div>
+      </div>}
+      {tab==='rules' && <div className="shield-content"><div className="shield-section-head"><h2>Referência de CDs</h2><button className="shield-text-button" onClick={()=>patch('rules', defaultShield.rules.map(x=>({...x})))}>Restaurar padrões</button></div><p className="shield-muted">Ajuste os valores para o seu estilo de mestragem. As alterações ficam salvas automaticamente.</p><div className="rule-list">{data.rules.map(rule=><div className="rule-row" key={rule.id}><span>{rule.name}</span><label>CD <input type="number" min="0" max="99" value={rule.dc} onChange={e=>patch('rules',data.rules.map(x=>x.id===rule.id?{...x,dc:Number(e.target.value)}:x))}/></label><button className="rule-reset" title="Restaurar este valor" onClick={()=>patch('rules',data.rules.map(x=>x.id===rule.id?{...x,dc:defaultShield.rules.find(base=>base.id===rule.id)?.dc ?? x.dc}:x))}>Padrão</button></div>)}</div><div className="shield-subcard"><h3>Lembretes de regras</h3><p>Condições · Concentração · Ações e ações bônus · Descanso · Testes de resistência · Morte e estabilização</p><small>Espaço de consulta rápida; os detalhes podem ser registrados em Anotações.</small></div></div>}
+      {tab==='initiative' && <div className="shield-content"><div className="shield-section-head"><h2>Ordem de combate</h2><div className="shield-inline-actions"><span className="round-pill">Rodada {data.combat.round}</span><button className="shield-text-button" onClick={()=>setData(d=>({...d,history:[...d.history,{id:makeId(),name:`Combate encerrado — rodada ${d.combat.round}`,detail:d.combat.participants.map(p=>`${p.name}: iniciativa ${p.initiative}${p.hp?`, PV ${p.hp}`:''}`).join('\n'),important:false}],combat:{...d.combat,active:false,turn:0,round:1,participants:[]}}))}>Encerrar combate</button></div></div><div className="add-line"><input value={newName} onChange={e=>setNewName(e.target.value)} onKeyDown={e=>e.key==='Enter'&&addCombatant()} placeholder="Nome do personagem, monstro ou NPC"/><button className="shield-add" onClick={addCombatant}><Plus size={16}/> Adicionar</button></div><div className="combat-list">{data.combat.participants.length===0?<div className="shield-empty">Nenhum participante. Adicione combatentes para montar a iniciativa.</div>:data.combat.participants.map((p,i)=><div className={`combat-row ${data.combat.active&&i===data.combat.turn?'current':''}`} key={p.id}><span className="combat-order">{i+1}</span><div className="combat-fields"><input aria-label="Nome" value={p.name} onChange={e=>updateCombatant(p.id,{name:e.target.value})}/><div className="combat-subfields"><label>Iniciativa <input type="number" value={p.initiative} onChange={e=>updateCombatant(p.id,{initiative:Number(e.target.value)})}/></label><label>PV <input value={p.hp} placeholder="Atual" onChange={e=>updateCombatant(p.id,{hp:e.target.value})}/></label><label>Máx. PV <input value={p.maxHp} placeholder="Máximo" onChange={e=>updateCombatant(p.id,{maxHp:e.target.value})}/></label></div><input className="combat-condition" value={p.conditions} placeholder="Condições / observações" onChange={e=>updateCombatant(p.id,{conditions:e.target.value})}/></div><div className="combat-row-actions"><button className="shield-icon-button" onClick={()=>updateCombatant(p.id,{initiative:Math.floor(Math.random()*20)+1})} title="Rolar iniciativa (1d20)"><Dices size={15}/></button><button className="shield-icon-delete" onClick={()=>removeCombatant(p.id)} title="Remover"><Trash2 size={15}/></button></div></div>)}</div><div className="combat-controls"><button className="shield-control" disabled={!data.combat.participants.length} onClick={()=>advanceTurn(-1)}>Turno anterior</button><button className="shield-control primary" disabled={!data.combat.participants.length} onClick={()=>advanceTurn(1)}>Próximo turno <ChevronRight size={15}/></button></div><p className="shield-muted">A lista é ordenada automaticamente pela iniciativa, da maior para a menor. Empates podem ser reorganizados alterando os valores.</p></div>}
+      {tab==='npcs' && <div className="shield-content"><div className="shield-section-head"><h2>NPCs e personagens</h2></div><div className="add-line"><input value={draft.name} onChange={e=>setDraft(d=>({...d,name:e.target.value}))} placeholder="Nome do NPC ou personagem"/><input value={draft.detail} onChange={e=>setDraft(d=>({...d,detail:e.target.value}))} placeholder="Descrição, função ou informação"/><button className="shield-add" onClick={()=>addRecord('npcs',draft.name,draft.detail)}><Plus size={16}/> Adicionar</button></div><RecordList items={data.npcs} onUpdate={(id,c)=>updateRecord('npcs',id,c)} onRemove={id=>removeRecord('npcs',id)} empty="Nenhum NPC cadastrado."/></div>}
+      {tab==='adventure' && <div className="shield-content"><div className="shield-section-head"><h2>Elementos da aventura</h2></div>{[['missions','Missões e objetivos'],['clues','Pistas e segredos'],['locations','Locais importantes']].map(([key,label])=><div className="adventure-block" key={key}><h3>{label}</h3><div className="add-line"><input value={draft.name} onChange={e=>setDraft(d=>({...d,name:e.target.value}))} placeholder={`Adicionar: ${label.toLowerCase()}`}/><input value={draft.detail} onChange={e=>setDraft(d=>({...d,detail:e.target.value}))} placeholder="Detalhes / consequências / observações"/><button className="shield-add" onClick={()=>addRecord(key,draft.name,draft.detail)}><Plus size={16}/></button></div><RecordList items={data[key]} onUpdate={(id,c)=>updateRecord(key,id,c)} onRemove={id=>removeRecord(key,id)} empty="Nenhum item registrado."/></div>)}</div>}
+      {tab==='history' && <div className="shield-content"><div className="shield-section-head"><h2>Histórico da sessão</h2><button className="shield-add" onClick={addLog}><Plus size={16}/> Novo registro</button></div><p className="shield-muted">Registre acontecimentos, decisões, descobertas e consequências em ordem cronológica.</p><RecordList items={data.history} onUpdate={(id,c)=>updateRecord('history',id,c)} onRemove={id=>removeRecord('history',id)} empty="Ainda não há acontecimentos registrados." showTime/></div>}
+      {tab==='notes' && <div className="shield-content"><div className="shield-section-head"><h2>Anotações do mestre</h2><span className="shield-muted">SALVAMENTO AUTOMÁTICO</span></div><textarea className="master-notes" value={data.notes} onChange={e=>patch('notes',e.target.value)} placeholder="Anote ideias, falas, lembretes, informações secretas e acontecimentos que não quer esquecer…"/><div className="shield-tip"><Lock size={16}/><span>Este painel é destinado à consulta do mestre e não aparece na janela de projeção.</span></div></div>}
+    </main>
+  </section>
+}
+
+function RecordList({ items, onUpdate, onRemove, empty, showTime=false }) {
+  if (!items?.length) return <div className="shield-empty">{empty}</div>
+  return <div className="record-list">{items.map(item=><article className="record-card" key={item.id}><div className="record-card-head"><input value={item.name} onChange={e=>onUpdate(item.id,{name:e.target.value})}/><div><button className={`shield-icon-button ${item.important?'marked':''}`} title="Marcar importante" onClick={()=>onUpdate(item.id,{important:!item.important})}>★</button><button className="shield-icon-delete" title="Excluir" onClick={()=>onRemove(item.id)}><Trash2 size={15}/></button></div></div><textarea value={item.detail||''} onChange={e=>onUpdate(item.id,{detail:e.target.value})} placeholder="Detalhes e observações…"/>{showTime&&<small>{item.name.startsWith('Registro —')?'Registro da sessão':'Acontecimento'}</small>}</article>)}</div>
+}
+
 export default function App() {
   const isProjection = new URLSearchParams(window.location.search).get('projection') === '1'
   if (isProjection) return <Projection />
@@ -210,6 +275,7 @@ export default function App() {
   const [frozen, setFrozen] = useState(false)
   const [transition, setTransition] = useState('fade')
   const [sidebarOpen, setSidebarOpen] = useState(true)
+  const [toolView, setToolView] = useState('map')
   const [status, setStatus] = useState('Edições ainda não publicadas')
   const [draftLoaded, setDraftLoaded] = useState(false)
   const stageRef = useRef(null)
@@ -382,7 +448,7 @@ export default function App() {
         </div>
       </header>
 
-      <div className="workspace">
+      {toolView === 'map' ? <div className="workspace">
         {sidebarOpen && <aside className="sidebar">
           <div className="side-heading"><span>FERRAMENTAS</span><button className="icon-btn" onClick={() => setSidebarOpen(false)} title="Recolher painel"><PanelLeftClose size={16}/></button></div>
           <label className="upload-card">
@@ -487,7 +553,11 @@ export default function App() {
             <button className="btn btn-quiet btn-small" onClick={() => { setScene(initialScene); setSelected(null) }}><RotateCcw size={14}/> Novo mapa</button>
           </footer>
         </main>
-      </div>
+      </div> : <ShieldPanel />}
+      <nav className="floating-tools" aria-label="Ferramentas principais">
+        <button className={toolView === 'shield' ? 'active' : ''} onClick={() => setToolView('shield')}><Shield size={17}/><span>Escudo do Mestre</span></button>
+        <button className={toolView === 'map' ? 'active' : ''} onClick={() => setToolView('map')}><Swords size={17}/><span>Mapa Tático</span></button>
+      </nav>
     </div>
   )
 }

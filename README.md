@@ -70,3 +70,15 @@ O arquivo `netlify.toml` já contém a configuração de build e o redirecioname
 - Cada peça selecionada pode receber um nome personalizado.
 - Seletor de símbolos com opções para as classes de D&D (Artífice, Bárbaro, Bardo, Clérigo, Druida, Guerreiro, Monge, Paladino, Patrulheiro, Ladino, Feiticeiro, Bruxo e Mago), além de símbolos para monstro, NPC e personagem genérico.
 - Nome e símbolo são salvos junto com a cena e aparecem também na projeção.
+
+
+## Versão 0.6 — Escudo do Mestre
+
+- Barra flutuante minimalista para alternar entre **Escudo do Mestre** e **Mapa Tático**.
+- Escudo com visão geral da sessão, regras rápidas e CDs editáveis (restauração individual ou geral), controle de iniciativa, cadastro de NPCs/personagens, missões, pistas, locais, histórico e anotações.
+- Iniciativa ordenada automaticamente; cada participante permite editar iniciativa, PV, condições e observações, além de rolar 1d20.
+- Encerrar combate registra automaticamente um resumo no histórico antes de limpar a iniciativa.
+- Dados do Escudo salvos automaticamente no IndexedDB do navegador, separados dos dados do mapa tático.
+- Layout responsivo em grafite e dourado envelhecido.
+
+**Importante:** os dados permanecem no navegador e dispositivo usados. Limpar os dados do site ou trocar de navegador/dispositivo pode removê-los. A janela de projeção continua exibindo somente o mapa tático, não o Escudo do Mestre.
