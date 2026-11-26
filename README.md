@@ -126,3 +126,28 @@ Esta atualização adiciona integração opcional com Supabase mantendo IndexedD
 
 ### Migração dos dados v0.6.2
 Use o mesmo navegador/perfil em que a versão 0.6.2 foi utilizada. Ao criar a primeira campanha, a aplicação lê as chaves locais acima e envia os dados para a campanha. Não limpe os dados do navegador até confirmar a presença das fichas, escudo e mapas na campanha. A janela de projeção continua local ao mesmo navegador e origem.
+
+
+## Autenticação por nome de usuário (v0.7.1)
+
+Esta versão adiciona cadastro e login por nome de usuário único, sem e-mail, usando uma Netlify Function no servidor. O Supabase Auth continua gerenciando as senhas. A função usa `SUPABASE_SERVICE_ROLE_KEY` apenas no servidor; nunca coloque essa chave em variáveis `VITE_`, no GitHub ou no navegador.
+
+### Configuração obrigatória
+
+1. No Supabase, abra **SQL Editor** e execute o arquivo `supabase/username-auth.sql` uma única vez. Ele cria a tabela privada de nomes de usuário e hashes dos códigos de recuperação.
+2. No Netlify, abra **Site configuration → Environment variables** e mantenha as duas variáveis públicas já usadas pelo app: `VITE_SUPABASE_URL` e `VITE_SUPABASE_ANON_KEY`.
+3. No mesmo local, adicione `SUPABASE_SERVICE_ROLE_KEY` com a chave `service_role` (ou secret/service role key equivalente) do projeto Supabase. Essa chave é secreta: não a compartilhe, não a coloque no GitHub e não a envie em conversas.
+4. Faça um novo deploy para que a Netlify Function receba as variáveis.
+5. Em Supabase → Authentication → Providers → Email, a confirmação de e-mail não é usada por este fluxo: a função cria o usuário já confirmado com um endereço técnico interno, sem enviar mensagem. Não é necessário coletar e-mail dos jogadores.
+
+### Regras das contas
+
+- Nome único, normalizado em minúsculas, de 3 a 20 caracteres: `a-z`, `0-9` e `_`.
+- Senha com pelo menos 8 caracteres.
+- O código de recuperação é mostrado uma única vez no cadastro. Ao utilizá-lo, a senha é alterada e um novo código é gerado; guarde sempre o mais recente.
+- Sem e-mail não existe recuperação por mensagem. Se o código for perdido, não há redefinição automática prevista.
+- O código de recuperação é armazenado somente como hash no banco.
+
+### Contas antigas
+
+Contas criadas anteriormente com e-mail não são convertidas automaticamente. Antes de migrar uma conta existente, é necessário planejar uma associação segura entre a identidade antiga e o novo nome de usuário.

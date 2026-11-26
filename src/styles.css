@@ -112,3 +112,10 @@
 @media(max-width:700px){.cloud-entry .btn{font-size:11px;padding:8px}.cloud-popover{right:-8px}}
 
 @media(max-width:700px){.cloud-popover{left:0;right:auto}}
+
+/* Conta por nome de usuário e recuperação sem e-mail */
+.text-link-button{border:0;background:transparent;color:#d9bd82;text-align:left;text-decoration:underline;text-underline-offset:3px;padding:4px 0;cursor:pointer;font:inherit;font-size:12px}
+.recovery-code-box{display:flex;flex-direction:column;gap:8px;padding:12px;margin-top:6px;border:1px solid #9b7b3d;border-radius:9px;background:#29251d}
+.recovery-code-box strong{color:#f0d69b}
+.recovery-code-box code{display:block;padding:10px;border-radius:6px;background:#151515;color:#f6e4b8;text-align:center;font-size:15px;letter-spacing:1px;overflow-wrap:anywhere}
+.recovery-code-box small{color:#d2c6ac;font-size:11px;line-height:1.45}
