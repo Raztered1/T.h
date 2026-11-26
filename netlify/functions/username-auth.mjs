@@ -17,13 +17,42 @@ export const handler = async event => {
   let body
   try { body = JSON.parse(event.body || '{}') } catch { return json(400, { error: 'Solicitação inválida.' }) }
 
-  const url = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL
-  const anonKey = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
-  if (!url || !anonKey || !serviceKey) return json(503, { error: 'Autenticação não configurada no servidor. Confira as variáveis do Supabase no Netlify.' })
+  const url = (process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '').trim()
+  const anonKey = (process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || '').trim()
+  const serviceKey = (process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim()
+  const configStatus = {
+    urlPresent: Boolean(url),
+    anonKeyPresent: Boolean(anonKey),
+    serviceKeyPresent: Boolean(serviceKey),
+    urlSource: process.env.VITE_SUPABASE_URL ? 'VITE_SUPABASE_URL' : (process.env.SUPABASE_URL ? 'SUPABASE_URL' : 'missing'),
+    anonKeySource: process.env.VITE_SUPABASE_ANON_KEY ? 'VITE_SUPABASE_ANON_KEY' : (process.env.SUPABASE_ANON_KEY ? 'SUPABASE_ANON_KEY' : 'missing'),
+    serviceKeySource: process.env.SUPABASE_SERVICE_ROLE_KEY ? 'SUPABASE_SERVICE_ROLE_KEY' : 'missing'
+  }
+  // Never log credential values; only presence/source information is recorded.
+  console.info('[username-auth] Supabase environment check', configStatus)
+  if (!url || !anonKey || !serviceKey) {
+    console.error('[username-auth] Missing Supabase environment variable(s)', configStatus)
+    return json(503, { error: 'Autenticação não configurada no servidor. Confira as variáveis do Supabase no Netlify.' })
+  }
 
-  const admin = createClient(url, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } })
-  const publicClient = createClient(url, anonKey, { auth: { persistSession: false, autoRefreshToken: false } })
+  let parsedUrl
+  try { parsedUrl = new URL(url) } catch {
+    console.error('[username-auth] SUPABASE URL is not a valid URL')
+    return json(503, { error: 'A URL do Supabase configurada no servidor é inválida.' })
+  }
+  if (!['https:', 'http:'].includes(parsedUrl.protocol)) {
+    console.error('[username-auth] SUPABASE URL has an unsupported protocol')
+    return json(503, { error: 'A URL do Supabase configurada no servidor é inválida.' })
+  }
+
+  let admin, publicClient
+  try {
+    admin = createClient(url, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } })
+    publicClient = createClient(url, anonKey, { auth: { persistSession: false, autoRefreshToken: false } })
+  } catch (error) {
+    console.error('[username-auth] Supabase client initialization failed:', error?.message || 'unknown error')
+    return json(503, { error: 'Não foi possível inicializar a conexão com o Supabase. Confira a configuração do servidor.' })
+  }
   const username = normalize(body.username)
   const password = String(body.password || '')
   if (!validUsername(username)) return json(400, { error: 'O nome de usuário deve ter de 3 a 20 caracteres, usando apenas letras sem acento, números e _. ' })
