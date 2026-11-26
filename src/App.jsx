@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { cloudConfigured, supabase, syncDocument, flushQueue, fetchCampaignDocuments, createCampaign, joinCampaign, listCampaigns, getActiveCampaign, setActiveCampaign } from './cloud'
 import {
-  Swords, Upload, Grid3X3, Eye, EyeOff, Plus, Trash2, ZoomIn, ZoomOut,
+  Swords, Cloud, Upload, Grid3X3, Eye, EyeOff, Plus, Trash2, ZoomIn, ZoomOut,
   Maximize, Monitor, Lock, Unlock, Image as ImageIcon, MousePointer2,
   Hand, RotateCcw, Shield, Users, Skull, Save, PanelLeftClose, PanelLeftOpen,
   BookOpen, ScrollText, NotebookPen, Flag, UsersRound, Clock3, Dices, CalendarDays,
@@ -377,8 +377,8 @@ function CloudAccount() {
     for (const doc of docs) await saveScene(doc.document_key, doc.content)
     setActiveCampaign(id); setCampaignId(id); await flushQueue(); setMessage('Campanha carregada. Dados locais e nuvem conectados.')
   })
-  if (!cloudConfigured) return <div className="cloud-entry"><button className="btn btn-quiet" onClick={() => setOpen(!open)}><Lock size={15}/> Nuvem não configurada</button>{open && <div className="cloud-popover"><strong>Conectar salvamento online</strong><p>Configure VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY no ambiente do projeto e publique novamente.</p><small>O modo local continua funcionando normalmente.</small></div>}</div>
-  return <div className="cloud-entry"><button className="btn btn-quiet" onClick={() => setOpen(!open)}><Users size={15}/>{session ? (session.user.email || 'Conta conectada') : 'Conta / Nuvem'}</button>{open && <div className="cloud-popover">
+  if (!cloudConfigured) return <div className="cloud-entry"><button className="btn cloud-account-button" onClick={() => setOpen(!open)} aria-label="Conta e nuvem"><Cloud size={18}/><span>Nuvem</span></button>{open && <div className="cloud-popover"><strong>Conectar salvamento online</strong><p>Configure VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY no ambiente do projeto e publique novamente.</p><small>O modo local continua funcionando normalmente.</small></div>}</div>
+  return <div className="cloud-entry"><button className="btn cloud-account-button" onClick={() => setOpen(!open)} aria-label="Conta e nuvem"><Cloud size={18}/><span>{session ? (session.user.email || 'Conta conectada') : 'Conta / Nuvem'}</span></button>{open && <div className="cloud-popover">
     {!session ? <><strong>Entrar ou criar conta</strong><input type="email" placeholder="E-mail" value={email} onChange={e=>setEmail(e.target.value)}/><input type="password" placeholder="Senha (mín. 6 caracteres)" value={password} onChange={e=>setPassword(e.target.value)}/><button className="btn btn-gold" disabled={busy} onClick={()=>run(async()=>{const {error}=await supabase.auth.signInWithPassword({email,password});if(error)throw error;setMessage('Login realizado.')})}>Entrar</button><button className="btn btn-quiet" disabled={busy} onClick={()=>run(async()=>{const {error}=await supabase.auth.signUp({email,password});if(error)throw error;setMessage('Cadastro enviado. Confirme o e-mail, se solicitado.')})}>Criar conta</button></> : <><strong>Campanhas compartilhadas</strong><select value={campaignId} onChange={e=>activate(e.target.value)}><option value="">Selecione uma campanha</option>{campaigns.map(c=><option key={c.id} value={c.id}>{c.name} · {c.role}</option>)}</select><input value={campaignName} onChange={e=>setCampaignName(e.target.value)} placeholder="Nome da nova campanha"/><button className="btn btn-gold" disabled={busy||!campaignName.trim()} onClick={()=>run(async()=>{const id=await createCampaign(campaignName.trim());setCampaignName('');setActiveCampaign(id);setCampaignId(id);for (const key of [DRAFT_KEY,PUBLISHED_KEY,SHIELD_KEY,CHARACTER_KEY]) { const value=await loadScene(key); if (value !== undefined) await syncDocument(key,value) };await refresh();setMessage('Campanha criada e dados locais importados para a nuvem.')})}>Criar campanha</button><input value={invite} onChange={e=>setInvite(e.target.value)} placeholder="Código de convite"/><button className="btn btn-quiet" disabled={busy||!invite.trim()} onClick={()=>run(async()=>{const id=await joinCampaign(invite);setInvite('');await refresh();await activate(id)})}>Entrar por convite</button><button className="btn btn-quiet" onClick={()=>run(async()=>{await supabase.auth.signOut();setActiveCampaign(null);setCampaignId('')})}>Sair da conta</button></>}
     {message && <small className="cloud-message">{message}</small>}<small>Modo offline: alterações ficam no navegador e aguardam conexão para sincronizar. Selecione uma campanha para compartilhar seus documentos.</small>
   </div>}</div>
@@ -561,9 +561,11 @@ export default function App() {
   return (
     <div className="app-shell">
       <header className="topbar">
-        <div className="brand"><div className="brand-mark"><Swords size={20}/></div><div><strong>Central de Mestragem</strong><small>PAINEL DO MESTRE</small></div></div>
-        <div className="top-actions">
+        <div className="header-identity">
           <CloudAccount />
+          <div className="brand"><div className="brand-mark"><Swords size={20}/></div><div><strong>Central de Mestragem</strong><small>PAINEL DO MESTRE</small></div></div>
+        </div>
+        <div className="top-actions">
           {toolView === 'map' && <>
             <span className="save-status"><Save size={14}/>{status}</span>
             <button className="btn btn-quiet" onClick={() => setFreeze(!frozen)}>{frozen ? <Unlock size={16}/> : <Lock size={16}/>} {frozen ? 'Descongelar' : 'Congelar'}</button>
