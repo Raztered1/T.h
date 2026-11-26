@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { cloudConfigured, supabase, syncDocument, flushQueue, fetchCampaignDocuments, createCampaign, joinCampaign, listCampaigns, getActiveCampaign, setActiveCampaign } from './cloud'
 import {
   Swords, Upload, Grid3X3, Eye, EyeOff, Plus, Trash2, ZoomIn, ZoomOut,
   Maximize, Monitor, Lock, Unlock, Image as ImageIcon, MousePointer2,
@@ -49,9 +50,14 @@ async function saveScene(key, value) {
   return new Promise((resolve, reject) => {
     const tx = db.transaction(DB_STORE, 'readwrite')
     tx.objectStore(DB_STORE).put(value, key)
-    tx.oncomplete = () => { db.close(); resolve() }
+    tx.oncomplete = () => { db.close(); syncDocument(key, value).catch(() => {}); resolve() }
     tx.onerror = () => { db.close(); reject(tx.error) }
   })
+}
+
+async function saveSceneLocalOnly(key, value) {
+  const db = await openSceneDB()
+  return new Promise((resolve, reject) => { const tx = db.transaction(DB_STORE, 'readwrite'); tx.objectStore(DB_STORE).put(value, key); tx.oncomplete = () => { db.close(); resolve() }; tx.onerror = () => { db.close(); reject(tx.error) } })
 }
 
 async function loadScene(key) {
@@ -328,7 +334,7 @@ function CharacterSheet() {
         <label className="vital-card"><span><Dices size={15}/> Iniciativa</span><input className="vital-big" type="number" value={active.initiative} onChange={e=>patch({initiative:Number(e.target.value)})}/></label>
         <label className="vital-card"><span><Footprints size={15}/> Deslocamento</span><input className="vital-text" value={active.speed} onChange={e=>patch({speed:e.target.value})}/></label>
       </div>
-      <div className="character-ability-strip">{ABILITY_LABELS.map(([key,label])=><div className="ability-card" key={key}><span>{label}</span><strong>{active.abilities?.[key] ?? 10}</strong><small>{fmt(modifier(active.abilities?.[key]))}</small></div>)}<div className="ability-card proficiency"><span>Bônus de prof.</span><strong>{fmt(Number(active.proficiency || 2))}</strong><small>Salvamentos / perícias</small></div></div>
+      <div className="character-ability-strip">{ABILITY_LABELS.map(([key,label])=><label className="ability-card" key={key}><span>{label}</span><input className="ability-score-input" aria-label={`${label}: pontuação`} type="number" min="1" max="30" step="1" value={active.abilities?.[key] ?? 10} onChange={e=>patchAbility(key,e.target.value === '' ? 0 : e.target.value)} title={`Editar ${label}`}/><small>{fmt(modifier(active.abilities?.[key]))}</small></label>)}<div className="ability-card proficiency"><span>Bônus de prof.</span><strong>{fmt(Number(active.proficiency || 2))}</strong><small>Salvamentos / perícias</small></div></div>
       <nav className="character-tabs">{nav.map(([id,label,Icon])=><button key={id} className={tab===id?'active':''} onClick={()=>{setTab(id);setSpellId(null)}}><Icon size={16}/>{label}</button>)}</nav>
       <div className="character-content">
         {tab==='overview' && <><div className="character-section-title"><div><h2>Resumo do aventureiro</h2><p>Informações essenciais para consultar durante a sessão.</p></div></div><div className="character-overview-grid"><article className="character-panel"><h3>Dados gerais</h3><div className="character-data-grid"><label>Jogador<input value={active.player} onChange={e=>patch({player:e.target.value})} placeholder="Nome do jogador"/></label><label>Alinhamento<input value={active.alignment} onChange={e=>patch({alignment:e.target.value})} placeholder="Ex.: Neutro e bom"/></label><label>Dados de vida<input value={active.hitDice} onChange={e=>patch({hitDice:e.target.value})} placeholder="Ex.: 5d10"/></label><label>Deslocamento<input value={active.speed} onChange={e=>patch({speed:e.target.value})}/></label></div></article><article className="character-panel"><h3>Testes de resistência</h3><div className="save-check-list">{ABILITY_LABELS.map(([key,label])=><label key={key}><input type="checkbox" checked={(active.saves||[]).includes(key)} onChange={e=>patch({saves:e.target.checked?[...(active.saves||[]),key]:(active.saves||[]).filter(x=>x!==key)})}/><span>{label}</span><b>{fmt(modifier(active.abilities?.[key]) + ((active.saves||[]).includes(key)?Number(active.proficiency||2):0))}</b></label>)}</div></article></div><article className="character-panel character-notes-panel"><h3>Características e anotações</h3><textarea value={active.features} onChange={e=>patch({features:e.target.value})} placeholder="Características raciais, talentos, habilidades de classe e outras informações importantes…"/></article></>}
@@ -340,6 +346,42 @@ function CharacterSheet() {
       </div>
     </main>
   </section>
+}
+
+
+function CloudAccount() {
+  const [session, setSession] = useState(null)
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [campaigns, setCampaigns] = useState([])
+  const [campaignId, setCampaignId] = useState(getActiveCampaign() || '')
+  const [campaignName, setCampaignName] = useState('')
+  const [invite, setInvite] = useState('')
+  const [message, setMessage] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [open, setOpen] = useState(false)
+  useEffect(() => {
+    if (!supabase) return
+    supabase.auth.getSession().then(({ data }) => setSession(data.session))
+    const { data } = supabase.auth.onAuthStateChange((_event, next) => setSession(next))
+    return () => data.subscription.unsubscribe()
+  }, [])
+  const refresh = async () => { if (!session) return; try { const rows = await listCampaigns(); setCampaigns(rows) } catch (e) { setMessage(e.message) } }
+  useEffect(() => { refresh() }, [session?.user?.id])
+  useEffect(() => { if (!supabase || !session || !campaignId) return; const channel = supabase.channel(`campaign-${campaignId}`).on('postgres_changes', { event: '*', schema: 'public', table: 'campaign_documents', filter: `campaign_id=eq.${campaignId}` }, payload => { const row = payload.new; if (row?.document_key && row.updated_by !== session.user.id) saveScene(row.document_key, row.content).catch(() => {}) }).subscribe(); return () => { supabase.removeChannel(channel) } }, [session?.user?.id, campaignId])
+  const run = async fn => { setBusy(true); setMessage(''); try { await fn() } catch (e) { setMessage(e.message || 'Não foi possível concluir a operação.') } finally { setBusy(false) } }
+  const activate = async id => run(async () => {
+    const docs = await fetchCampaignDocuments(id)
+    const backup = {}; for (const key of [DRAFT_KEY,PUBLISHED_KEY,SHIELD_KEY,CHARACTER_KEY]) backup[key] = await loadScene(key)
+    await saveSceneLocalOnly(`backup-before-campaign-${Date.now()}`, { createdAt: new Date().toISOString(), documents: backup })
+    for (const doc of docs) await saveScene(doc.document_key, doc.content)
+    setActiveCampaign(id); setCampaignId(id); await flushQueue(); setMessage('Campanha carregada. Dados locais e nuvem conectados.')
+  })
+  if (!cloudConfigured) return <div className="cloud-entry"><button className="btn btn-quiet" onClick={() => setOpen(!open)}><Lock size={15}/> Nuvem não configurada</button>{open && <div className="cloud-popover"><strong>Conectar salvamento online</strong><p>Configure VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY no ambiente do projeto e publique novamente.</p><small>O modo local continua funcionando normalmente.</small></div>}</div>
+  return <div className="cloud-entry"><button className="btn btn-quiet" onClick={() => setOpen(!open)}><Users size={15}/>{session ? (session.user.email || 'Conta conectada') : 'Conta / Nuvem'}</button>{open && <div className="cloud-popover">
+    {!session ? <><strong>Entrar ou criar conta</strong><input type="email" placeholder="E-mail" value={email} onChange={e=>setEmail(e.target.value)}/><input type="password" placeholder="Senha (mín. 6 caracteres)" value={password} onChange={e=>setPassword(e.target.value)}/><button className="btn btn-gold" disabled={busy} onClick={()=>run(async()=>{const {error}=await supabase.auth.signInWithPassword({email,password});if(error)throw error;setMessage('Login realizado.')})}>Entrar</button><button className="btn btn-quiet" disabled={busy} onClick={()=>run(async()=>{const {error}=await supabase.auth.signUp({email,password});if(error)throw error;setMessage('Cadastro enviado. Confirme o e-mail, se solicitado.')})}>Criar conta</button></> : <><strong>Campanhas compartilhadas</strong><select value={campaignId} onChange={e=>activate(e.target.value)}><option value="">Selecione uma campanha</option>{campaigns.map(c=><option key={c.id} value={c.id}>{c.name} · {c.role}</option>)}</select><input value={campaignName} onChange={e=>setCampaignName(e.target.value)} placeholder="Nome da nova campanha"/><button className="btn btn-gold" disabled={busy||!campaignName.trim()} onClick={()=>run(async()=>{const id=await createCampaign(campaignName.trim());setCampaignName('');setActiveCampaign(id);setCampaignId(id);for (const key of [DRAFT_KEY,PUBLISHED_KEY,SHIELD_KEY,CHARACTER_KEY]) { const value=await loadScene(key); if (value !== undefined) await syncDocument(key,value) };await refresh();setMessage('Campanha criada e dados locais importados para a nuvem.')})}>Criar campanha</button><input value={invite} onChange={e=>setInvite(e.target.value)} placeholder="Código de convite"/><button className="btn btn-quiet" disabled={busy||!invite.trim()} onClick={()=>run(async()=>{const id=await joinCampaign(invite);setInvite('');await refresh();await activate(id)})}>Entrar por convite</button><button className="btn btn-quiet" onClick={()=>run(async()=>{await supabase.auth.signOut();setActiveCampaign(null);setCampaignId('')})}>Sair da conta</button></>}
+    {message && <small className="cloud-message">{message}</small>}<small>Modo offline: alterações ficam no navegador e aguardam conexão para sincronizar. Selecione uma campanha para compartilhar seus documentos.</small>
+  </div>}</div>
 }
 
 
@@ -360,6 +402,8 @@ export default function App() {
   const dragRef = useRef(null)
   const panDragRef = useRef(null)
   const channelRef = useChannel()
+
+  useEffect(() => { const online = () => flushQueue(); window.addEventListener('online', online); return () => window.removeEventListener('online', online) }, [])
 
   useEffect(() => {
     const channel = channelRef.current
@@ -519,6 +563,7 @@ export default function App() {
       <header className="topbar">
         <div className="brand"><div className="brand-mark"><Swords size={20}/></div><div><strong>Central de Mestragem</strong><small>PAINEL DO MESTRE</small></div></div>
         <div className="top-actions">
+          <CloudAccount />
           {toolView === 'map' && <>
             <span className="save-status"><Save size={14}/>{status}</span>
             <button className="btn btn-quiet" onClick={() => setFreeze(!frozen)}>{frozen ? <Unlock size={16}/> : <Lock size={16}/>} {frozen ? 'Descongelar' : 'Congelar'}</button>

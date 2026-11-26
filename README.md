@@ -91,3 +91,38 @@ A barra flutuante agora inclui o módulo **Personagens**. É possível criar vá
 As fichas são salvas automaticamente no IndexedDB do navegador, na mesma base local do projeto, usando a chave `character-sheets-v1`. Retratos são armazenados como imagens locais na própria ficha. Para consultar uma magia, clique em seu nome na lista; a visualização de detalhes oferece um botão para voltar à lista.
 
 **Observação:** esta versão parte da v0.6 e não inclui a integração Supabase planejada para a v0.7. O salvamento de fichas é local ao navegador/dispositivo.
+
+
+## Versão 0.6.2
+
+- Corrigida a edição dos seis atributos na faixa principal da ficha de personagem.
+- Cada pontuação agora pode ser alterada diretamente no campo numérico; o modificador é recalculado automaticamente e os valores continuam sendo salvos no IndexedDB.
+
+## Versão 0.7 — Contas, campanhas compartilhadas e sincronização
+
+Esta atualização adiciona integração opcional com Supabase mantendo IndexedDB como armazenamento local e fila offline.
+
+### Configuração do Supabase
+1. Crie um projeto em https://supabase.com/.
+2. No SQL Editor, execute integralmente `supabase/schema.sql`.
+3. Copie `.env.example` para `.env.local` e informe `VITE_SUPABASE_URL` e `VITE_SUPABASE_ANON_KEY` (chave publicável/anon; nunca use `service_role` no navegador).
+4. Execute `npm install` e `npm run build`.
+5. No Netlify, cadastre as mesmas variáveis em Site configuration > Environment variables e publique novamente.
+6. Em Authentication > URL Configuration no Supabase, configure a URL pública do site e os redirects permitidos.
+
+### Uso
+- Entre ou crie uma conta no botão **Conta / Nuvem**.
+- Crie uma campanha: os documentos locais conhecidos (`draft`, `published`, `master-shield` e `character-sheets-v1`) são importados para a campanha recém-criada.
+- Para compartilhar, envie o código de convite a outro mestre. Ele deve criar sua própria conta e entrar pelo código.
+- Selecione uma campanha para carregar os documentos dela neste navegador. Alterações subsequentes são enviadas ao Supabase.
+- Sem conexão, as gravações permanecem no IndexedDB e entram numa fila local; ao voltar a conexão, a fila tenta sincronizar.
+
+### Limitações importantes desta primeira integração
+- A sincronização é por documento completo (mapa, escudo ou coleção de fichas), não por campo. Edições simultâneas no mesmo documento podem resultar em política de última gravação prevalecer; mantenha cópias/exportações de segurança durante os testes.
+- O modo offline mantém alterações locais, mas a fila é vinculada à campanha ativa no momento em que for enviada. Evite alternar de campanha enquanto houver alterações offline pendentes.
+- A sincronização em tempo real atualiza documentos recebidos de outros membros; não há mesclagem automática de edições concorrentes.
+- Imagens de mapas e retratos continuam incorporadas aos documentos como Data URLs nesta versão. Para campanhas com mapas muito grandes, recomenda-se migrar imagens para Supabase Storage em uma etapa específica, antes de uso intenso.
+- O modo local continua disponível sem configurar as variáveis do Supabase.
+
+### Migração dos dados v0.6.2
+Use o mesmo navegador/perfil em que a versão 0.6.2 foi utilizada. Ao criar a primeira campanha, a aplicação lê as chaves locais acima e envia os dados para a campanha. Não limpe os dados do navegador até confirmar a presença das fichas, escudo e mapas na campanha. A janela de projeção continua local ao mesmo navegador e origem.
