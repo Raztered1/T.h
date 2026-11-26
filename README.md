@@ -82,3 +82,12 @@ O arquivo `netlify.toml` já contém a configuração de build e o redirecioname
 - Layout responsivo em grafite e dourado envelhecido.
 
 **Importante:** os dados permanecem no navegador e dispositivo usados. Limpar os dados do site ou trocar de navegador/dispositivo pode removê-los. A janela de projeção continua exibindo somente o mapa tático, não o Escudo do Mestre.
+
+
+## Ficha de Personagem (v0.6.1)
+
+A barra flutuante agora inclui o módulo **Personagens**. É possível criar várias fichas independentes, alternar entre elas e editar os dados principais de cada aventureiro. A ficha inclui retrato, identidade, atributos, PV, CA, iniciativa, deslocamento, testes de resistência, ataques, magias, perícias, inventário, moedas e informações narrativas.
+
+As fichas são salvas automaticamente no IndexedDB do navegador, na mesma base local do projeto, usando a chave `character-sheets-v1`. Retratos são armazenados como imagens locais na própria ficha. Para consultar uma magia, clique em seu nome na lista; a visualização de detalhes oferece um botão para voltar à lista.
+
+**Observação:** esta versão parte da v0.6 e não inclui a integração Supabase planejada para a v0.7. O salvamento de fichas é local ao navegador/dispositivo.

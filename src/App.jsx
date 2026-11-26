@@ -4,7 +4,7 @@ import {
   Maximize, Monitor, Lock, Unlock, Image as ImageIcon, MousePointer2,
   Hand, RotateCcw, Shield, Users, Skull, Save, PanelLeftClose, PanelLeftOpen,
   BookOpen, ScrollText, NotebookPen, Flag, UsersRound, Clock3, Dices, CalendarDays,
-  ChevronRight, PlusCircle, CircleHelp, ListChecks, Swords as SwordsIcon
+  ChevronRight, PlusCircle, CircleHelp, ListChecks, Swords as SwordsIcon, Heart, Footprints, Backpack, UserRound, ArrowLeft
 } from 'lucide-react'
 
 const CHANNEL_NAME = 'central-mestragem-dnd'
@@ -265,6 +265,84 @@ function RecordList({ items, onUpdate, onRemove, empty, showTime=false }) {
   return <div className="record-list">{items.map(item=><article className="record-card" key={item.id}><div className="record-card-head"><input value={item.name} onChange={e=>onUpdate(item.id,{name:e.target.value})}/><div><button className={`shield-icon-button ${item.important?'marked':''}`} title="Marcar importante" onClick={()=>onUpdate(item.id,{important:!item.important})}>★</button><button className="shield-icon-delete" title="Excluir" onClick={()=>onRemove(item.id)}><Trash2 size={15}/></button></div></div><textarea value={item.detail||''} onChange={e=>onUpdate(item.id,{detail:e.target.value})} placeholder="Detalhes e observações…"/>{showTime&&<small>{item.name.startsWith('Registro —')?'Registro da sessão':'Acontecimento'}</small>}</article>)}</div>
 }
 
+const CHARACTER_KEY = 'character-sheets-v1'
+const blankCharacter = () => ({
+  id: makeId(), name: 'Novo personagem', player: '', species: '', className: '', subclass: '', level: 1, background: '', alignment: '', portrait: '',
+  hp: 10, maxHp: 10, tempHp: 0, ac: 10, initiative: 0, speed: '9 m', proficiency: 2, hitDice: '1d8', exhaustion: 0,
+  abilities: { for: 10, des: 10, con: 10, int: 10, sab: 10, car: 10 }, saves: [], skills: [], attacks: [], spells: [], inventory: [], features: '', personality: '', ideals: '', bonds: '', flaws: '', notes: '', currency: { po: 0, pp: 0, pe: 0, pc: 0 }
+})
+const ABILITY_LABELS = [['for','Força'],['des','Destreza'],['con','Constituição'],['int','Inteligência'],['sab','Sabedoria'],['car','Carisma']]
+const SKILL_LABELS = ['Acrobacia','Arcanismo','Atletismo','Atuação','Enganação','Furtividade','História','Intimidação','Intuição','Investigação','Lidar com Animais','Medicina','Natureza','Percepção','Persuasão','Prestidigitação','Religião','Sobrevivência']
+
+function CharacterSheet() {
+  const [characters, setCharacters] = useState([])
+  const [activeId, setActiveId] = useState(null)
+  const [tab, setTab] = useState('overview')
+  const [spellId, setSpellId] = useState(null)
+  const [loaded, setLoaded] = useState(false)
+  const [saveLabel, setSaveLabel] = useState('Carregando…')
+  const [spellDraft, setSpellDraft] = useState({ name: '', level: 'Truque', school: '', casting: '', range: '', components: '', duration: '', description: '', prepared: true })
+  const [attackDraft, setAttackDraft] = useState({ name: '', bonus: '', damage: '', type: '' })
+  const active = characters.find(c => c.id === activeId) || characters[0] || null
+  useEffect(() => {
+    loadScene(CHARACTER_KEY).then(saved => {
+      if (Array.isArray(saved) && saved.length) { setCharacters(saved); setActiveId(saved[0].id) }
+      else { const first = blankCharacter(); setCharacters([first]); setActiveId(first.id) }
+    }).catch(() => { const first = blankCharacter(); setCharacters([first]); setActiveId(first.id) }).finally(() => setLoaded(true))
+  }, [])
+  useEffect(() => {
+    if (!loaded) return
+    setSaveLabel('Salvando…')
+    const timer = window.setTimeout(() => saveScene(CHARACTER_KEY, characters).then(() => setSaveLabel('Salvo neste dispositivo')).catch(() => setSaveLabel('Falha ao salvar')), 300)
+    return () => window.clearTimeout(timer)
+  }, [characters, loaded])
+  const patch = (changes) => setCharacters(list => list.map(c => c.id === active?.id ? { ...c, ...changes } : c))
+  const patchAbility = (key, value) => patch({ abilities: { ...active.abilities, [key]: Number(value) } })
+  const addCharacter = () => { const c = blankCharacter(); setCharacters(list => [...list, c]); setActiveId(c.id); setTab('overview'); setSpellId(null) }
+  const deleteCharacter = () => { if (!active || !window.confirm(`Excluir a ficha de ${active.name}?`)) return; const next = characters.filter(c => c.id !== active.id); setCharacters(next); setActiveId(next[0]?.id || null); setSpellId(null) }
+  const uploadPortrait = (file) => { if (!file) return; if (!file.type.startsWith('image/')) return; const reader = new FileReader(); reader.onload = () => patch({ portrait: reader.result }); reader.readAsDataURL(file) }
+  const updateListItem = (key, id, changes) => patch({ [key]: (active[key] || []).map(item => item.id === id ? { ...item, ...changes } : item) })
+  const removeListItem = (key, id) => patch({ [key]: (active[key] || []).filter(item => item.id !== id) })
+  const addSpell = () => { if (!spellDraft.name.trim()) return; patch({ spells: [...(active.spells || []), { ...spellDraft, id: makeId(), name: spellDraft.name.trim() }] }); setSpellDraft({ name: '', level: 'Truque', school: '', casting: '', range: '', components: '', duration: '', description: '', prepared: true }) }
+  const addAttack = () => { if (!attackDraft.name.trim()) return; patch({ attacks: [...(active.attacks || []), { ...attackDraft, id: makeId() }] }); setAttackDraft({ name: '', bonus: '', damage: '', type: '' }) }
+  const modifier = score => Math.floor((Number(score || 10) - 10) / 2)
+  const fmt = value => `${value >= 0 ? '+' : ''}${value}`
+  const nav = [['overview','Visão geral',Shield],['combat','Combate',Swords],['spells','Magias',BookOpen],['skills','Perícias',Dices],['inventory','Inventário',Backpack],['identity','Personagem',UserRound]]
+  if (!active) return <section className="character-workspace"><div className="character-empty">Nenhuma ficha criada. <button className="character-primary" onClick={addCharacter}>Criar personagem</button></div></section>
+  const currentSpell = active.spells?.find(s => s.id === spellId)
+  return <section className="character-workspace">
+    <aside className="character-sidebar">
+      <div className="character-side-head"><div><span>FICHAS</span><small>PERSONAGENS</small></div><button className="character-add-mini" onClick={addCharacter} title="Nova ficha"><Plus size={17}/></button></div>
+      <div className="character-list">{characters.map(c => <button key={c.id} className={`character-list-item ${c.id === active.id ? 'active' : ''}`} onClick={() => { setActiveId(c.id); setTab('overview'); setSpellId(null) }}><span className="character-avatar-small">{c.portrait ? <img src={c.portrait} alt=""/> : <UserRound size={17}/>}</span><span><strong>{c.name || 'Sem nome'}</strong><small>{[c.species,c.className,c.level ? `Nv. ${c.level}` : ''].filter(Boolean).join(' · ') || 'Ficha em branco'}</small></span></button>)}</div>
+      <div className="character-side-foot"><span className="live-dot"/>{saveLabel}</div>
+    </aside>
+    <main className="character-main">
+      <div className="character-topline"><div><span className="eyebrow">CENTRAL DE MESTRAGEM / PERSONAGENS</span><h1>Ficha de personagem</h1></div><button className="character-delete" onClick={deleteCharacter}><Trash2 size={14}/> Excluir ficha</button></div>
+      <div className="character-hero">
+        <label className="character-portrait" title="Alterar retrato">{active.portrait ? <img src={active.portrait} alt="Retrato de personagem"/> : <span><UserRound size={35}/><small>Adicionar retrato</small></span>}<input type="file" accept="image/*" onChange={e => uploadPortrait(e.target.files?.[0])}/><i><Upload size={13}/></i></label>
+        <div className="character-identity"><input className="character-name" value={active.name} onChange={e=>patch({name:e.target.value})} aria-label="Nome do personagem" placeholder="Nome do personagem"/><div className="character-subline"><input value={active.species} onChange={e=>patch({species:e.target.value})} placeholder="Espécie"/><span>·</span><input value={active.className} onChange={e=>patch({className:e.target.value})} placeholder="Classe"/><span>·</span><label>Nível <input type="number" min="1" max="20" value={active.level} onChange={e=>patch({level:Math.max(1,Math.min(20,Number(e.target.value)))})}/></label></div><div className="character-subline"><input value={active.subclass} onChange={e=>patch({subclass:e.target.value})} placeholder="Subclasse"/><span>·</span><input value={active.background} onChange={e=>patch({background:e.target.value})} placeholder="Antecedente"/></div></div>
+      </div>
+      <div className="character-vitals">
+        <label className="vital-card"><span><Heart size={15}/> Pontos de vida</span><div><input type="number" value={active.hp} onChange={e=>patch({hp:Number(e.target.value)})}/><b>/</b><input aria-label="PV máximos" type="number" value={active.maxHp} onChange={e=>patch({maxHp:Number(e.target.value)})}/></div><small>Temporários <input type="number" value={active.tempHp} onChange={e=>patch({tempHp:Number(e.target.value)})}/></small></label>
+        <label className="vital-card"><span><Shield size={15}/> Classe de armadura</span><input className="vital-big" type="number" value={active.ac} onChange={e=>patch({ac:Number(e.target.value)})}/></label>
+        <label className="vital-card"><span><Dices size={15}/> Iniciativa</span><input className="vital-big" type="number" value={active.initiative} onChange={e=>patch({initiative:Number(e.target.value)})}/></label>
+        <label className="vital-card"><span><Footprints size={15}/> Deslocamento</span><input className="vital-text" value={active.speed} onChange={e=>patch({speed:e.target.value})}/></label>
+      </div>
+      <div className="character-ability-strip">{ABILITY_LABELS.map(([key,label])=><div className="ability-card" key={key}><span>{label}</span><strong>{active.abilities?.[key] ?? 10}</strong><small>{fmt(modifier(active.abilities?.[key]))}</small></div>)}<div className="ability-card proficiency"><span>Bônus de prof.</span><strong>{fmt(Number(active.proficiency || 2))}</strong><small>Salvamentos / perícias</small></div></div>
+      <nav className="character-tabs">{nav.map(([id,label,Icon])=><button key={id} className={tab===id?'active':''} onClick={()=>{setTab(id);setSpellId(null)}}><Icon size={16}/>{label}</button>)}</nav>
+      <div className="character-content">
+        {tab==='overview' && <><div className="character-section-title"><div><h2>Resumo do aventureiro</h2><p>Informações essenciais para consultar durante a sessão.</p></div></div><div className="character-overview-grid"><article className="character-panel"><h3>Dados gerais</h3><div className="character-data-grid"><label>Jogador<input value={active.player} onChange={e=>patch({player:e.target.value})} placeholder="Nome do jogador"/></label><label>Alinhamento<input value={active.alignment} onChange={e=>patch({alignment:e.target.value})} placeholder="Ex.: Neutro e bom"/></label><label>Dados de vida<input value={active.hitDice} onChange={e=>patch({hitDice:e.target.value})} placeholder="Ex.: 5d10"/></label><label>Deslocamento<input value={active.speed} onChange={e=>patch({speed:e.target.value})}/></label></div></article><article className="character-panel"><h3>Testes de resistência</h3><div className="save-check-list">{ABILITY_LABELS.map(([key,label])=><label key={key}><input type="checkbox" checked={(active.saves||[]).includes(key)} onChange={e=>patch({saves:e.target.checked?[...(active.saves||[]),key]:(active.saves||[]).filter(x=>x!==key)})}/><span>{label}</span><b>{fmt(modifier(active.abilities?.[key]) + ((active.saves||[]).includes(key)?Number(active.proficiency||2):0))}</b></label>)}</div></article></div><article className="character-panel character-notes-panel"><h3>Características e anotações</h3><textarea value={active.features} onChange={e=>patch({features:e.target.value})} placeholder="Características raciais, talentos, habilidades de classe e outras informações importantes…"/></article></>}
+        {tab==='combat' && <><div className="character-section-title"><div><h2>Combate</h2><p>Armas, ataques, recursos e condições do personagem.</p></div></div><div className="character-overview-grid"><article className="character-panel"><h3>Recursos</h3><div className="character-data-grid"><label>Bônus de proficiência<input type="number" value={active.proficiency} onChange={e=>patch({proficiency:Number(e.target.value)})}/></label><label>Dados de vida<input value={active.hitDice} onChange={e=>patch({hitDice:e.target.value})}/></label><label>Exaustão<input type="number" min="0" max="6" value={active.exhaustion} onChange={e=>patch({exhaustion:Number(e.target.value)})}/></label></div></article><article className="character-panel"><h3>Condições ativas</h3><input className="character-wide-input" value={active.conditions||''} onChange={e=>patch({conditions:e.target.value})} placeholder="Ex.: Caído, Envenenado, Amedrontado…"/></article></div><article className="character-panel"><h3>Ataques e armas</h3><div className="character-add-row"><input value={attackDraft.name} onChange={e=>setAttackDraft(d=>({...d,name:e.target.value}))} placeholder="Arma ou ataque"/><input value={attackDraft.bonus} onChange={e=>setAttackDraft(d=>({...d,bonus:e.target.value}))} placeholder="Bônus (ex. +6)"/><input value={attackDraft.damage} onChange={e=>setAttackDraft(d=>({...d,damage:e.target.value}))} placeholder="Dano (ex. 1d8+3)"/><input value={attackDraft.type} onChange={e=>setAttackDraft(d=>({...d,type:e.target.value}))} placeholder="Tipo de dano"/><button className="character-primary" onClick={addAttack}><Plus size={15}/> Adicionar</button></div><div className="character-item-list">{(active.attacks||[]).map(a=><div className="character-item-row" key={a.id}><input value={a.name} onChange={e=>updateListItem('attacks',a.id,{name:e.target.value})}/><span>{a.bonus}</span><span>{a.damage}</span><span>{a.type}</span><button onClick={()=>removeListItem('attacks',a.id)}><Trash2 size={14}/></button></div>)}</div></article></>}
+        {tab==='spells' && <>{currentSpell ? <article className="character-panel spell-detail"><button className="character-back" onClick={()=>setSpellId(null)}><ArrowLeft size={15}/> Voltar às magias</button><div className="spell-detail-heading"><div><span className="eyebrow">{currentSpell.level} {currentSpell.school ? `· ${currentSpell.school}` : ''}</span><h2>{currentSpell.name}</h2></div><button className="character-delete" onClick={()=>removeListItem('spells',currentSpell.id)}><Trash2 size={14}/> Excluir</button></div><div className="spell-meta-grid">{[['Tempo de conjuração',currentSpell.casting],['Alcance',currentSpell.range],['Componentes',currentSpell.components],['Duração',currentSpell.duration]].map(([label,value])=><div key={label}><small>{label}</small><strong>{value||'—'}</strong></div>)}</div><h3>Descrição</h3><p className="spell-description">{currentSpell.description||'Nenhuma descrição cadastrada.'}</p><button className="character-secondary" onClick={()=>setSpellId(null)}>Voltar à lista</button></article> : <><div className="character-section-title"><div><h2>Magias</h2><p>Toque no nome de uma magia para abrir sua descrição.</p></div><span className="character-count">{(active.spells||[]).length} magias</span></div><div className="character-spell-layout"><article className="character-panel"><h3>Adicionar magia</h3><div className="character-spell-form"><input value={spellDraft.name} onChange={e=>setSpellDraft(d=>({...d,name:e.target.value}))} placeholder="Nome da magia"/><div className="character-form-pair"><select value={spellDraft.level} onChange={e=>setSpellDraft(d=>({...d,level:e.target.value}))}>{['Truque','1º círculo','2º círculo','3º círculo','4º círculo','5º círculo','6º círculo','7º círculo','8º círculo','9º círculo'].map(x=><option key={x}>{x}</option>)}</select><input value={spellDraft.school} onChange={e=>setSpellDraft(d=>({...d,school:e.target.value}))} placeholder="Escola"/></div><div className="character-form-pair"><input value={spellDraft.casting} onChange={e=>setSpellDraft(d=>({...d,casting:e.target.value}))} placeholder="Tempo de conjuração"/><input value={spellDraft.range} onChange={e=>setSpellDraft(d=>({...d,range:e.target.value}))} placeholder="Alcance"/></div><div className="character-form-pair"><input value={spellDraft.components} onChange={e=>setSpellDraft(d=>({...d,components:e.target.value}))} placeholder="Componentes"/><input value={spellDraft.duration} onChange={e=>setSpellDraft(d=>({...d,duration:e.target.value}))} placeholder="Duração"/></div><textarea value={spellDraft.description} onChange={e=>setSpellDraft(d=>({...d,description:e.target.value}))} placeholder="Descrição completa da magia…"/><button className="character-primary" onClick={addSpell}><Plus size={15}/> Adicionar à ficha</button></div></article><article className="character-panel"><h3>Lista de magias</h3>{(active.spells||[]).length===0?<div className="character-empty-inline">Nenhuma magia cadastrada ainda.</div>:<div className="character-spell-list">{(active.spells||[]).map(s=><div className="character-spell-row" key={s.id}><button className="spell-name-button" onClick={()=>setSpellId(s.id)}><strong>{s.name}</strong><small>{s.level}{s.school?` · ${s.school}`:''}</small></button><label><input type="checkbox" checked={!!s.prepared} onChange={e=>updateListItem('spells',s.id,{prepared:e.target.checked})}/> Preparada</label><button className="spell-remove" onClick={()=>removeListItem('spells',s.id)} title="Excluir magia"><Trash2 size={14}/></button></div>)}</div>}</article></div></>}</>}
+        {tab==='skills' && <><div className="character-section-title"><div><h2>Perícias e proficiências</h2><p>Marque as perícias em que o personagem é proficiente.</p></div></div><article className="character-panel"><h3>Perícias</h3><div className="character-skills-grid">{SKILL_LABELS.map((name,i)=>{const ability=['des','int','for','car','des','des','int','car','sab','int','sab','sab','int','sab','car','des','int','sab'][i];const trained=(active.skills||[]).includes(name);return <label key={name}><input type="checkbox" checked={trained} onChange={e=>patch({skills:e.target.checked?[...(active.skills||[]),name]:(active.skills||[]).filter(x=>x!==name)})}/><span>{name}<small>{ABILITY_LABELS.find(x=>x[0]===ability)?.[1]}</small></span><b>{fmt(modifier(active.abilities?.[ability])+ (trained?Number(active.proficiency||2):0))}</b></label>})}</div></article></>}
+        {tab==='inventory' && <><div className="character-section-title"><div><h2>Inventário</h2><p>Equipamentos, objetos carregados e moedas.</p></div></div><article className="character-panel"><h3>Moedas</h3><div className="character-currency-grid">{['po','pp','pe','pc'].map((coin,i)=><label key={coin}>{['Ouro','Prata','Electro','Cobre'][i]}<input type="number" min="0" value={active.currency?.[coin]||0} onChange={e=>patch({currency:{...active.currency,[coin]:Number(e.target.value)}})}/></label>)}</div></article><article className="character-panel"><h3>Itens e equipamentos</h3><div className="character-add-row"><input id="new-item-name" placeholder="Nome do item"/><input id="new-item-qty" type="number" min="1" defaultValue="1" placeholder="Qtd."/><input id="new-item-detail" placeholder="Descrição / peso"/><button className="character-primary" onClick={()=>{const name=document.getElementById('new-item-name')?.value?.trim();if(!name)return;const qty=document.getElementById('new-item-qty')?.value||1;const detail=document.getElementById('new-item-detail')?.value||'';patch({inventory:[...(active.inventory||[]),{id:makeId(),name,qty,detail}]});document.getElementById('new-item-name').value='';document.getElementById('new-item-detail').value=''}}> <Plus size={15}/> Adicionar</button></div><div className="character-item-list">{(active.inventory||[]).map(item=><div className="character-item-row" key={item.id}><input value={item.name} onChange={e=>updateListItem('inventory',item.id,{name:e.target.value})}/><span>Qtd. {item.qty}</span><input value={item.detail||''} onChange={e=>updateListItem('inventory',item.id,{detail:e.target.value})}/><button onClick={()=>removeListItem('inventory',item.id)}><Trash2 size={14}/></button></div>)}</div></article></>}
+        {tab==='identity' && <><div className="character-section-title"><div><h2>História e identidade</h2><p>Personalidade, vínculos e informações narrativas.</p></div></div><article className="character-panel"><div className="character-data-grid"><label>Jogador<input value={active.player} onChange={e=>patch({player:e.target.value})}/></label><label>Antecedente<input value={active.background} onChange={e=>patch({background:e.target.value})}/></label><label>Alinhamento<input value={active.alignment} onChange={e=>patch({alignment:e.target.value})}/></label></div>{[['personality','Traços de personalidade'],['ideals','Ideais'],['bonds','Vínculos'],['flaws','Defeitos'],['notes','História e anotações']].map(([key,label])=><label className="character-long-field" key={key}>{label}<textarea value={active[key]||''} onChange={e=>patch({[key]:e.target.value})} placeholder={`${label} do personagem…`}/></label>)}</article></>}
+      </div>
+    </main>
+  </section>
+}
+
+
 export default function App() {
   const isProjection = new URLSearchParams(window.location.search).get('projection') === '1'
   if (isProjection) return <Projection />
@@ -441,10 +519,11 @@ export default function App() {
       <header className="topbar">
         <div className="brand"><div className="brand-mark"><Swords size={20}/></div><div><strong>Central de Mestragem</strong><small>PAINEL DO MESTRE</small></div></div>
         <div className="top-actions">
-          <span className="save-status"><Save size={14}/>{status}</span>
-          <button className="btn btn-quiet" onClick={() => setFreeze(!frozen)}>{frozen ? <Unlock size={16}/> : <Lock size={16}/>} {frozen ? 'Descongelar' : 'Congelar'}</button>
-          
-          <button className="btn btn-gold" onClick={openProjection}><Monitor size={16}/> Abrir projeção</button>
+          {toolView === 'map' && <>
+            <span className="save-status"><Save size={14}/>{status}</span>
+            <button className="btn btn-quiet" onClick={() => setFreeze(!frozen)}>{frozen ? <Unlock size={16}/> : <Lock size={16}/>} {frozen ? 'Descongelar' : 'Congelar'}</button>
+            <button className="btn btn-gold" onClick={openProjection}><Monitor size={16}/> Abrir projeção</button>
+          </>}
         </div>
       </header>
 
@@ -553,10 +632,11 @@ export default function App() {
             <button className="btn btn-quiet btn-small" onClick={() => { setScene(initialScene); setSelected(null) }}><RotateCcw size={14}/> Novo mapa</button>
           </footer>
         </main>
-      </div> : <ShieldPanel />}
+      </div> : toolView === 'shield' ? <ShieldPanel /> : <CharacterSheet />}
       <nav className="floating-tools" aria-label="Ferramentas principais">
         <button className={toolView === 'shield' ? 'active' : ''} onClick={() => setToolView('shield')}><Shield size={17}/><span>Escudo do Mestre</span></button>
         <button className={toolView === 'map' ? 'active' : ''} onClick={() => setToolView('map')}><Swords size={17}/><span>Mapa Tático</span></button>
+        <button className={toolView === 'characters' ? 'active' : ''} onClick={() => setToolView('characters')}><UserRound size={17}/><span>Personagens</span></button>
       </nav>
     </div>
   )
