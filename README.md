@@ -151,3 +151,15 @@ Esta versão adiciona cadastro e login por nome de usuário único, sem e-mail, 
 ### Contas antigas
 
 Contas criadas anteriormente com e-mail não são convertidas automaticamente. Antes de migrar uma conta existente, é necessário planejar uma associação segura entre a identidade antiga e o novo nome de usuário.
+
+## Atribuição de fichas a jogadores (v0.7.1)
+
+Para ativar o painel **Jogadores**, aplique no SQL Editor do Supabase o arquivo `supabase/player-assignment.sql` uma única vez, após o esquema principal e a configuração de autenticação por nome de usuário.
+
+- O mestre cria/importa fichas, atribui um jogador e escolhe entre edição limitada, edição completa ou somente leitura.
+- O jogador autenticado consulta apenas as fichas atribuídas à própria conta.
+- A edição do jogador passa por uma função SQL que valida a atribuição e o nível de permissão no servidor.
+- As alterações são transmitidas pelo Supabase Realtime.
+- O mestre pode desatribuir, transferir, bloquear ou excluir uma ficha compartilhada sem depender da conta do jogador.
+
+A ficha compartilhada fica na tabela `campaign_characters`; as fichas locais antigas continuam preservadas. O painel de atribuição é uma área separada do editor local de personagens.
