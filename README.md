@@ -152,14 +152,21 @@ Esta versão adiciona cadastro e login por nome de usuário único, sem e-mail, 
 
 Contas criadas anteriormente com e-mail não são convertidas automaticamente. Antes de migrar uma conta existente, é necessário planejar uma associação segura entre a identidade antiga e o novo nome de usuário.
 
-## Atribuição de fichas a jogadores (v0.7.1)
+## Versão 0.7.2 — Convites por ficha e inventário
 
-Para ativar o painel **Jogadores**, aplique no SQL Editor do Supabase o arquivo `supabase/player-assignment.sql` uma única vez, após o esquema principal e a configuração de autenticação por nome de usuário.
+Esta atualização acrescenta um módulo **Campanha / Itens**:
+- O mestre pode compartilhar uma ficha existente a partir do módulo Personagens. A ficha é copiada para o espaço privado da campanha; depois, em Campanha / Itens, o mestre gera um link de convite de uso único e validade de 7 dias.
+- O jogador precisa entrar na conta e abrir o link; ao aceitar, a ficha fica vinculada à conta e a campanha é adicionada à associação do jogador automaticamente.
+- As fichas são visíveis somente ao mestre e ao jogador vinculado. O resumo da ficha compartilhada é exibido no painel da campanha.
+- Biblioteca de itens por campanha, com nome, categoria, raridade, descrição, propriedades/efeitos, recuperação de PV (ex.: `2d4 + 2 PV`), peso, valor e imagem por URL ou arquivo.
+- O mestre pode entregar itens ao inventário; quantidades podem ser alteradas e itens removidos do inventário. Arquivar um item da biblioteca não apaga cópias já entregues.
+- Alterações nas tabelas de campanha são transmitidas pelo Supabase Realtime.
 
-- O mestre cria/importa fichas, atribui um jogador e escolhe entre edição limitada, edição completa ou somente leitura.
-- O jogador autenticado consulta apenas as fichas atribuídas à própria conta.
-- A edição do jogador passa por uma função SQL que valida a atribuição e o nível de permissão no servidor.
-- As alterações são transmitidas pelo Supabase Realtime.
-- O mestre pode desatribuir, transferir, bloquear ou excluir uma ficha compartilhada sem depender da conta do jogador.
+### Ativação obrigatória no Supabase
+1. Abra **Supabase → SQL Editor**.
+2. Execute integralmente `supabase/character-inventory.sql` (depois dos scripts de campanha e autenticação já aplicados).
+3. Faça o deploy da nova versão no Netlify.
+4. Selecione uma campanha no menu Conta / Nuvem. No módulo Personagens, use **Compartilhar na campanha** na ficha desejada. Depois abra **Campanha / Itens** e gere o link para o jogador.
+5. O jogador abre o link, entra na conta se necessário e acessa **Campanha / Itens** para aceitar o convite.
 
-A ficha compartilhada fica na tabela `campaign_characters`; as fichas locais antigas continuam preservadas. O painel de atribuição é uma área separada do editor local de personagens.
+**Nota desta etapa:** o compartilhamento cria uma cópia da ficha no espaço privado da campanha. O resumo é exibido no painel Campanha / Itens; a edição completa da ficha compartilhada pelo jogador, o seletor de permissões avançadas e a revogação/transferência de convites são evoluções separadas. A ficha local original continua no dispositivo do mestre. Imagens selecionadas como arquivo são armazenadas como Data URL no registro do item; prefira imagens otimizadas para evitar registros grandes.

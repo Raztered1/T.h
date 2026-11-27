@@ -1,10 +1,12 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import CampaignHub from './CampaignHub'
+import { getCampaignFeatureContext, createCampaignCharacter } from './campaignFeatures'
 import { cloudConfigured, supabase, syncDocument, flushQueue, fetchCampaignDocuments, createCampaign, joinCampaign, listCampaigns, getActiveCampaign, setActiveCampaign } from './cloud'
 import {
   Swords, Cloud, Upload, Grid3X3, Eye, EyeOff, Plus, Trash2, ZoomIn, ZoomOut,
   Maximize, Monitor, Lock, Unlock, Image as ImageIcon, MousePointer2,
   Hand, RotateCcw, Shield, Users, Skull, Save, PanelLeftClose, PanelLeftOpen,
-  BookOpen, ScrollText, NotebookPen, Flag, UsersRound, Clock3, Dices, CalendarDays, UserCheck, UserCog,
+  BookOpen, ScrollText, NotebookPen, Flag, UsersRound, Clock3, Dices, CalendarDays,
   ChevronRight, PlusCircle, CircleHelp, ListChecks, Swords as SwordsIcon, Heart, Footprints, Backpack, UserRound, ArrowLeft
 } from 'lucide-react'
 
@@ -287,6 +289,7 @@ function CharacterSheet() {
   const [spellId, setSpellId] = useState(null)
   const [loaded, setLoaded] = useState(false)
   const [saveLabel, setSaveLabel] = useState('Carregando…')
+  const [shareBusy, setShareBusy] = useState(false)
   const [spellDraft, setSpellDraft] = useState({ name: '', level: 'Truque', school: '', casting: '', range: '', components: '', duration: '', description: '', prepared: true })
   const [attackDraft, setAttackDraft] = useState({ name: '', bonus: '', damage: '', type: '' })
   const active = characters.find(c => c.id === activeId) || characters[0] || null
@@ -323,7 +326,7 @@ function CharacterSheet() {
       <div className="character-side-foot"><span className="live-dot"/>{saveLabel}</div>
     </aside>
     <main className="character-main">
-      <div className="character-topline"><div><span className="eyebrow">CENTRAL DE MESTRAGEM / PERSONAGENS</span><h1>Ficha de personagem</h1></div><button className="character-delete" onClick={deleteCharacter}><Trash2 size={14}/> Excluir ficha</button></div>
+      <div className="character-topline"><div><span className="eyebrow">CENTRAL DE MESTRAGEM / PERSONAGENS</span><h1>Ficha de personagem</h1></div><button className="character-secondary" disabled={shareBusy} onClick={async()=>{try{setShareBusy(true);const c=await getCampaignFeatureContext();if(!c.isGM)throw new Error("Somente o mestre pode compartilhar fichas.");await createCampaignCharacter(c.campaign.id,active.name||"Personagem sem nome",active);window.alert("Cópia da ficha enviada à campanha. Agora abra Campanha / Itens para gerar o link de convite.")}catch(e){window.alert(e.message)}finally{setShareBusy(false)}}}>{shareBusy?"Enviando…":"Compartilhar na campanha"}</button> <button className="character-delete" onClick={deleteCharacter}><Trash2 size={14}/> Excluir ficha</button></div>
       <div className="character-hero">
         <label className="character-portrait" title="Alterar retrato">{active.portrait ? <img src={active.portrait} alt="Retrato de personagem"/> : <span><UserRound size={35}/><small>Adicionar retrato</small></span>}<input type="file" accept="image/*" onChange={e => uploadPortrait(e.target.files?.[0])}/><i><Upload size={13}/></i></label>
         <div className="character-identity"><input className="character-name" value={active.name} onChange={e=>patch({name:e.target.value})} aria-label="Nome do personagem" placeholder="Nome do personagem"/><div className="character-subline"><input value={active.species} onChange={e=>patch({species:e.target.value})} placeholder="Espécie"/><span>·</span><input value={active.className} onChange={e=>patch({className:e.target.value})} placeholder="Classe"/><span>·</span><label>Nível <input type="number" min="1" max="20" value={active.level} onChange={e=>patch({level:Math.max(1,Math.min(20,Number(e.target.value)))})}/></label></div><div className="character-subline"><input value={active.subclass} onChange={e=>patch({subclass:e.target.value})} placeholder="Subclasse"/><span>·</span><input value={active.background} onChange={e=>patch({background:e.target.value})} placeholder="Antecedente"/></div></div>
@@ -348,134 +351,6 @@ function CharacterSheet() {
   </section>
 }
 
-
-
-function PlayerAssignmentPanel() {
-  const [sessionUser, setSessionUser] = useState(null)
-  const [campaign, setCampaign] = useState(null)
-  const [characters, setCharacters] = useState([])
-  const [players, setPlayers] = useState([])
-  const [selectedId, setSelectedId] = useState('')
-  const [selectedPlayer, setSelectedPlayer] = useState('')
-  const [permission, setPermission] = useState('limited')
-  const [draftName, setDraftName] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [message, setMessage] = useState('Carregando campanha…')
-  const [editing, setEditing] = useState({})
-  const active = characters.find(c => c.id === selectedId) || characters[0] || null
-  const isOwner = campaign?.role === 'owner'
-
-  const refresh = useCallback(async () => {
-    if (!supabase) { setMessage('Conecte sua conta à nuvem para usar a atribuição de fichas.'); return }
-    const [{ data: authData }, campaigns] = await Promise.all([supabase.auth.getUser(), listCampaigns()])
-    const user = authData?.user
-    setSessionUser(user)
-    const campaignId = getActiveCampaign()
-    const current = campaigns.find(c => c.id === campaignId) || campaigns[0]
-    if (!current) { setCampaign(null); setCharacters([]); setMessage('Entre em uma campanha ou crie uma campanha pelo botão Conta / Nuvem.'); return }
-    if (current.id !== campaignId) setActiveCampaign(current.id)
-    setCampaign(current)
-    const { data, error } = await supabase.from('campaign_characters').select('*').eq('campaign_id', current.id).order('created_at')
-    if (error) throw error
-    setCharacters(data || [])
-    const chosen = (data || []).find(c => c.id === selectedId) || (data || [])[0] || null
-    setSelectedId(chosen?.id || '')
-    if (chosen) { setSelectedPlayer(chosen.assigned_user_id || ''); setPermission(chosen.permission_mode || 'limited') }
-    if (current.role === 'owner') {
-      const { data: roster, error: rosterError } = await supabase.rpc('list_campaign_players', { target_campaign: current.id })
-      if (rosterError) throw rosterError
-      setPlayers(roster || [])
-    } else setPlayers([])
-    setMessage('Sincronizado com a campanha.')
-  }, [selectedId])
-
-  useEffect(() => { refresh().catch(e => setMessage(e.message || 'Falha ao carregar fichas.')) }, [refresh])
-  useEffect(() => {
-    if (!campaign?.id || !supabase) return
-    const channel = supabase.channel(`characters-${campaign.id}-${sessionUser?.id || 'guest'}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'campaign_characters', filter: `campaign_id=eq.${campaign.id}` }, () => refresh().catch(e => setMessage(e.message)))
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'campaign_members', filter: `campaign_id=eq.${campaign.id}` }, () => refresh().catch(e => setMessage(e.message)))
-      .subscribe()
-    return () => { supabase.removeChannel(channel) }
-  }, [campaign?.id, sessionUser?.id, refresh])
-
-  const run = async fn => { setBusy(true); setMessage('Salvando…'); try { await fn(); await refresh(); setMessage('Alterações sincronizadas.') } catch (e) { setMessage(e.message || 'Não foi possível concluir.'); } finally { setBusy(false) } }
-  const createFromLocal = async () => {
-    const local = await loadScene(CHARACTER_KEY)
-    const list = Array.isArray(local) ? local : []
-    if (!list.length) { setMessage('Nenhuma ficha local encontrada. Crie uma ficha em Personagens primeiro.'); return }
-    const chosen = list[0]
-    const name = chosen.name || 'Novo personagem'
-    await run(async () => {
-      const { error } = await supabase.from('campaign_characters').insert({ campaign_id: campaign.id, name, data: chosen, assigned_user_id: selectedPlayer || null, permission_mode: permission })
-      if (error) throw error
-    })
-  }
-  const createBlank = async () => {
-    const name = draftName.trim() || 'Novo personagem'
-    await run(async () => {
-      const data = { id: makeId(), name, hp: 10, maxHp: 10, tempHp: 0, level: 1, className: '', species: '', resources: {}, spellSlots: {}, consumables: [] }
-      const { error } = await supabase.from('campaign_characters').insert({ campaign_id: campaign.id, name, data, assigned_user_id: selectedPlayer || null, permission_mode: permission })
-      if (error) throw error
-      setDraftName('')
-    })
-  }
-  const saveMasterEdit = async () => run(async () => {
-    const next = { ...(active.data || {}), ...editing }
-    const { error } = await supabase.from('campaign_characters').update({ name: next.name || active.name, data: next, assigned_user_id: selectedPlayer || null, permission_mode: permission, updated_by: sessionUser.id, updated_at: new Date().toISOString() }).eq('id', active.id)
-    if (error) throw error
-    setEditing({})
-  })
-  const savePlayerStats = async () => run(async () => {
-    const changes = { hp: Number(editing.hp ?? active.data?.hp ?? 0), tempHp: Number(editing.tempHp ?? active.data?.tempHp ?? 0) }
-    if (active.permission_mode === 'full') { if (editing.name !== undefined) changes.name = editing.name; if (editing.className !== undefined) changes.className = editing.className; if (editing.level !== undefined) changes.level = Number(editing.level); if (editing.maxHp !== undefined) changes.maxHp = Number(editing.maxHp) }
-    const { error } = await supabase.rpc('player_update_character', { target_character: active.id, changes })
-    if (error) throw error
-    setEditing({})
-  })
-  const deleteCharacter = async () => {
-    if (!active || !window.confirm(`Excluir a ficha compartilhada de ${active.name}?`)) return
-    await run(async () => { const { error } = await supabase.from('campaign_characters').delete().eq('id', active.id); if (error) throw error })
-  }
-
-  if (!campaign) return <section className="assignment-page"><div className="assignment-empty"><Users size={32}/><h2>Jogadores e fichas</h2><p>{message}</p></div></section>
-  return <section className="assignment-page">
-    <header className="assignment-header"><div><span className="eyebrow">CAMPANHA / COMPARTILHAMENTO</span><h1>Jogadores e fichas</h1><p>{campaign.name} · {isOwner ? 'Painel do mestre' : 'Área do jogador'}</p></div><span className="assignment-live"><i/> Atualização em tempo real</span></header>
-    {isOwner && <div className="assignment-create">
-      <div><strong>Adicionar personagem à campanha</strong><small>Você pode criar uma ficha ou importar uma ficha já existente neste dispositivo.</small></div>
-      <input value={draftName} onChange={e=>setDraftName(e.target.value)} placeholder="Nome do novo personagem"/>
-      <select value={selectedPlayer} onChange={e=>setSelectedPlayer(e.target.value)}><option value="">Sem jogador atribuído</option>{players.map(p=><option key={p.user_id} value={p.user_id}>{p.username}</option>)}</select>
-      <select value={permission} onChange={e=>setPermission(e.target.value)}><option value="limited">Edição limitada</option><option value="full">Edição completa</option><option value="readonly">Somente leitura</option></select>
-      <div className="assignment-actions"><button className="btn btn-gold" disabled={busy} onClick={createBlank}><Plus size={15}/> Criar ficha</button><button className="btn btn-quiet" disabled={busy} onClick={createFromLocal}><Upload size={15}/> Importar ficha local</button></div>
-    </div>}
-    <div className="assignment-layout">
-      <aside className="assignment-roster"><div className="assignment-section-title">{isOwner ? 'FICHAS DA CAMPANHA' : 'MINHA FICHA'}</div>
-        {characters.length ? characters.map(c=><button key={c.id} className={`assignment-character ${active?.id===c.id?'active':''}`} onClick={()=>{setSelectedId(c.id);setEditing({});setSelectedPlayer(c.assigned_user_id||'');setPermission(c.permission_mode)}}><span className="assignment-avatar"><UserRound size={18}/></span><span><b>{c.name}</b><small>{c.assigned_user_id ? (players.find(p=>p.user_id===c.assigned_user_id)?.username || 'Atribuída') : 'Sem jogador'}</small></span></button>) : <p className="assignment-muted">{isOwner ? 'Nenhuma ficha cadastrada nesta campanha.' : 'O mestre ainda não atribuiu uma ficha à sua conta.'}</p>}
-      </aside>
-      <main className="assignment-detail">{active ? <>
-        <div className="assignment-detail-head"><div><span className="eyebrow">FICHA COMPARTILHADA</span><h2>{active.name}</h2></div>{isOwner && <button className="character-delete" onClick={deleteCharacter}><Trash2 size={14}/> Excluir</button>}</div>
-        {isOwner ? <>
-          <div className="assignment-fields">
-            <label>Nome<input value={editing.name ?? active.data?.name ?? active.name} onChange={e=>setEditing(v=>({...v,name:e.target.value}))}/></label>
-            <label>Classe<input value={editing.className ?? active.data?.className ?? ''} onChange={e=>setEditing(v=>({...v,className:e.target.value}))}/></label>
-            <label>Nível<input type="number" min="1" max="20" value={editing.level ?? active.data?.level ?? 1} onChange={e=>setEditing(v=>({...v,level:Number(e.target.value)}))}/></label>
-            <label>PV atuais<input type="number" value={editing.hp ?? active.data?.hp ?? 0} onChange={e=>setEditing(v=>({...v,hp:Number(e.target.value)}))}/></label>
-            <label>PV máximos<input type="number" value={editing.maxHp ?? active.data?.maxHp ?? 0} onChange={e=>setEditing(v=>({...v,maxHp:Number(e.target.value)}))}/></label>
-            <label>PV temporários<input type="number" value={editing.tempHp ?? active.data?.tempHp ?? 0} onChange={e=>setEditing(v=>({...v,tempHp:Number(e.target.value)}))}/></label>
-          </div>
-          <div className="assignment-permissions"><div><b><UserCog size={16}/> Acesso do jogador</b><small>As permissões são verificadas no banco de dados.</small></div><select value={selectedPlayer || active.assigned_user_id || ''} onChange={e=>setSelectedPlayer(e.target.value)}><option value="">Sem jogador atribuído</option>{players.map(p=><option key={p.user_id} value={p.user_id}>{p.username}</option>)}</select><select value={permission} onChange={e=>setPermission(e.target.value)}><option value="limited">Edição limitada</option><option value="full">Edição completa</option><option value="readonly">Somente leitura</option></select></div>
-          <button className="btn btn-gold" disabled={busy} onClick={saveMasterEdit}><Save size={15}/> Salvar e sincronizar</button>
-        </> : <>
-          <div className="assignment-player-summary"><span>{active.data?.species || 'Personagem'}</span><b>{active.data?.className || 'Classe não definida'} · Nível {active.data?.level || 1}</b></div>
-          <div className="assignment-fields">{active.permission_mode==='full' && <><label>Nome<input value={editing.name ?? active.data?.name ?? active.name} onChange={e=>setEditing(v=>({...v,name:e.target.value}))}/></label><label>Classe<input value={editing.className ?? active.data?.className ?? ''} onChange={e=>setEditing(v=>({...v,className:e.target.value}))}/></label><label>Nível<input type="number" min="1" max="20" value={editing.level ?? active.data?.level ?? 1} onChange={e=>setEditing(v=>({...v,level:Number(e.target.value)}))}/></label><label>PV máximos<input type="number" min="1" value={editing.maxHp ?? active.data?.maxHp ?? 1} onChange={e=>setEditing(v=>({...v,maxHp:Number(e.target.value)}))}/></label></>}<label>Pontos de vida<input type="number" min="0" max={active.data?.maxHp ?? 999} value={editing.hp ?? active.data?.hp ?? 0} disabled={active.permission_mode==='readonly'} onChange={e=>setEditing(v=>({...v,hp:Number(e.target.value)}))}/></label><label>PV temporários<input type="number" min="0" value={editing.tempHp ?? active.data?.tempHp ?? 0} disabled={active.permission_mode==='readonly'} onChange={e=>setEditing(v=>({...v,tempHp:Number(e.target.value)}))}/></label></div>
-          {active.permission_mode==='readonly' ? <p className="assignment-muted">Esta ficha está em modo somente leitura. Peça ao mestre para liberar a edição.</p> : <button className="btn btn-gold" disabled={busy || !Object.keys(editing).length} onClick={savePlayerStats}><Save size={15}/> Atualizar minha ficha</button>}
-        </>}
-        <div className="assignment-sync-note"><UserCheck size={16}/> Alterações salvas nesta ficha são transmitidas aos usuários autorizados da campanha.</div>
-      </> : <div className="assignment-empty"><UserRound size={30}/><h2>Nenhuma ficha selecionada</h2><p>Quando uma ficha for criada e atribuída, ela aparecerá aqui.</p></div>}</main>
-    </div>
-    <p className="assignment-status"><i/> {message}</p>
-  </section>
-}
 
 function CloudAccount() {
   const [session, setSession] = useState(null)
@@ -724,7 +599,7 @@ export default function App() {
         </div>
       </header>
 
-      {toolView === 'map' ? <div className="workspace">
+      {toolView === 'campaign' ? <CampaignHub /> : toolView === 'map' ? <div className="workspace">
         {sidebarOpen && <aside className="sidebar">
           <div className="side-heading"><span>FERRAMENTAS</span><button className="icon-btn" onClick={() => setSidebarOpen(false)} title="Recolher painel"><PanelLeftClose size={16}/></button></div>
           <label className="upload-card">
@@ -829,12 +704,12 @@ export default function App() {
             <button className="btn btn-quiet btn-small" onClick={() => { setScene(initialScene); setSelected(null) }}><RotateCcw size={14}/> Novo mapa</button>
           </footer>
         </main>
-      </div> : toolView === 'shield' ? <ShieldPanel /> : toolView === 'players' ? <PlayerAssignmentPanel /> : <CharacterSheet />}
+      </div> : toolView === 'shield' ? <ShieldPanel /> : <CharacterSheet />}
       <nav className="floating-tools" aria-label="Ferramentas principais">
         <button className={toolView === 'shield' ? 'active' : ''} onClick={() => setToolView('shield')}><Shield size={17}/><span>Escudo do Mestre</span></button>
         <button className={toolView === 'map' ? 'active' : ''} onClick={() => setToolView('map')}><Swords size={17}/><span>Mapa Tático</span></button>
         <button className={toolView === 'characters' ? 'active' : ''} onClick={() => setToolView('characters')}><UserRound size={17}/><span>Personagens</span></button>
-        <button className={toolView === 'players' ? 'active' : ''} onClick={() => setToolView('players')}><Users size={17}/><span>Jogadores</span></button>
+        <button className={toolView === 'campaign' ? 'active' : ''} onClick={() => setToolView('campaign')}><Backpack size={17}/><span>Campanha / Itens</span></button>
       </nav>
     </div>
   )
